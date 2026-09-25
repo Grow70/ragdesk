@@ -6,6 +6,8 @@ from fastapi import FastAPI
 from sqlalchemy import create_engine
 
 from app.api.auth import router as auth_router
+from app.api.documents import install_document_error_handler
+from app.api.documents import router as document_router
 from app.api.health import router as health_router
 from app.api.knowledge_bases import install_kb_error_handler
 from app.api.knowledge_bases import router as kb_router
@@ -28,7 +30,9 @@ def create_app() -> FastAPI:
     app.state.engine = engine
     install_http_behavior(app)
     install_kb_error_handler(app)
+    install_document_error_handler(app)
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(kb_router)
+    app.include_router(document_router)
     return app

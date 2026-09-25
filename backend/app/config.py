@@ -1,5 +1,7 @@
 """Environment-only application configuration."""
 
+from pathlib import Path
+
 from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,6 +15,7 @@ class Settings(BaseSettings):
     model_api_key: SecretStr | None = None
     jwt_secret: SecretStr
     access_token_ttl_minutes: int = Field(default=30, ge=1, le=1440)
+    upload_storage_dir: Path = Path(__file__).resolve().parents[1] / "var" / "uploads"
 
     @field_validator("database_url")
     @classmethod

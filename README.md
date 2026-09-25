@@ -1,6 +1,6 @@
 # Ragdesk
 
-面向模拟企业资料的知识库问答系统。当前完成后端骨架、核心数据库表、演示用户身份认证，以及知识库与成员权限。支持 `/health/live`、`/auth/session`、`/auth/me` 和 `/knowledge-bases`；尚无文档上传、检索、问答或模型调用。
+面向模拟企业资料的知识库问答系统。当前完成后端骨架、核心数据库表、演示用户身份认证、知识库与成员权限，以及原文件上传和受保护读取。支持 `/health/live`、`/auth/session`、`/auth/me`、`/knowledge-bases` 和文档接口；尚无文件解析、检索、问答或模型调用。
 
 需求和后续实现契约分别见 [docs/requirements.md](docs/requirements.md) 与 [docs/architecture.md](docs/architecture.md)。
 
@@ -42,7 +42,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/auth/me -Headers @{ Authorization =
 
 ## 知识库与成员权限
 
-已登录用户可创建知识库，并自动成为该库管理员。`GET /knowledge-bases` 只返回当前用户加入的库；`GET /knowledge-bases/{kb_id}` 要求成员资格。管理员可通过 `GET /knowledge-bases/{kb_id}/members` 查看成员，使用 `PUT /knowledge-bases/{kb_id}/members/{user_id}` 配合 `{"role":"member"}` 或 `{"role":"admin"}` 添加或调整已有用户，使用 `DELETE` 同路径移除成员。移除或降级最后一位管理员会返回 `409`。普通成员只能读取当前已实现的知识库详情；文档上传、删除和问答尚无接口，未来须调用统一的 `require_kb_admin` 或 `require_kb_member` 守卫。
+已登录用户可创建知识库，并自动成为该库管理员。`GET /knowledge-bases` 只返回当前用户加入的库；`GET /knowledge-bases/{kb_id}` 要求成员资格。管理员可通过 `GET /knowledge-bases/{kb_id}/members` 查看成员，使用 `PUT /knowledge-bases/{kb_id}/members/{user_id}` 配合 `{"role":"member"}` 或 `{"role":"admin"}` 添加或调整已有用户，使用 `DELETE` 同路径移除成员。移除或降级最后一位管理员会返回 `409`。普通成员可读取知识库及其文档，上传仅限管理员；文档删除和问答尚无接口。
 
 在上面的登录示例取得 `$session` 后，可创建并查看知识库：
 
@@ -54,6 +54,23 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)" -Header
 ```
 
 集成测试以三个临时用户和两个独立知识库验证成员隔离。服务端只从已验证的 JWT 取得操作人身份，成员变更提交后，下次请求重新查询数据库权限。
+
+## 原文件上传与读取
+
+管理员可通过 `POST /knowledge-bases/{kb_id}/documents` 的 `file` 表单字段上传 `.md`、`.txt` 或 `.pdf`，单文件最多 10 MiB。服务端检查文本编码或 PDF 的基本头尾结构并计算 SHA-256；同一库中相同有效字节返回已有 `document_id`。新文件返回 `201`、`status: uploaded`；重复文件返回 `200`。`uploaded` 表示仅保存原文件，当前没有解析、构建或可检索内容；PDF 的基础检查也不能证明它含有可提取文本，扫描件将在后续解析步骤提示不支持。
+
+成员可通过 `GET /knowledge-bases/{kb_id}/documents?limit=20&offset=0` 分页查看文档，通过 `GET /knowledge-bases/{kb_id}/documents/{document_id}` 查看详情，并从 `GET /knowledge-bases/{kb_id}/documents/{document_id}/raw` 下载原文件。所有读取都重新检查当前成员资格。私有文件默认写到 `backend/var/uploads`，可设置 `UPLOAD_STORAGE_DIR` 指向其他**不公开映射**的目录；原始文件和数据库文件不要提交到 Git。
+
+在仓库根目录、已按上文取得 `$headers` 与 `$kb` 后，可上传一份模拟资料并读取：
+
+```powershell
+$sample = (Resolve-Path data/sample_docs/a/A-EXP-001.md).Path
+$uploaded = curl.exe -sS -H "Authorization: Bearer $($session.access_token)" -F "file=@$sample" "http://127.0.0.1:8000/knowledge-bases/$($kb.id)/documents" | ConvertFrom-Json
+$uploaded
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)/documents?limit=20&offset=0" -Headers $headers
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)/documents/$($uploaded.document_id)" -Headers $headers
+Invoke-WebRequest -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)/documents/$($uploaded.document_id)/raw" -Headers $headers -OutFile "$env:TEMP\ragdesk-download.md"
+```
 
 ## 数据库结构
 

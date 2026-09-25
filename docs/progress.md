@@ -62,3 +62,10 @@
 - 验证结果：核对 Python `json`、`pathlib`、`hashlib` 官方文档，没有新增依赖或改动锁文件。实际执行检查脚本通过：30 条均为 draft，类别计数 12/6/6/6、dev/test 各 15、无重复 ID，直接题和对应改写题同组同 split，跨文档题至少引用两份本库资料，资料不足题列出本库全部核对文档；样例资料 SHA-256、章节及逐字引文匹配，`REVIEW.md` 与题目文件同步，冻结 test 摘要匹配。用临时修改的内存副本确认脚本能检出缺字段、重复 ID、错误引文、跨库证据、split 泄漏和核对范围不完整。Python 编译检查、Ruff 格式与代码检查、`git diff --check` 通过；未运行模型或产生效果指标。
 - 遗留问题：事实推理是否正确、题目是否歧义，以及“资料不足”判断是否成立，都不能由存在性脚本证明，需项目负责人逐条人工复核。当前全部样本为 draft，不可作为正式效果结论。逻辑库标签及样例文档 ID 未来需映射到数据库 UUID；test 不用于调参，人工标注纠错需记录修订缘由并有意识更新冻结摘要。
 - 下一步入口：等待新的编号任务；人工复核从 `data/eval/REVIEW.md` 开始，后续真正评测时先确认入库资料版本与本草案证据一致。
+
+## 第 8 步：原文件上传与受保护读取
+
+- 已完成：先更新架构契约，新增无构建时的 `uploaded` 状态及原文件接口；加入锁定的 `python-multipart` 依赖。实现管理员上传 `.md`、`.txt`、`.pdf`（最多 10 MiB）、UTF-8 或 PDF 基础结构检查、SHA-256、同库按有效字节去重、服务端 UUID 私有存储键、写库失败清理文件；实现成员可用的分页文档列表、详情和每次重新授权的原文件下载。文件名仅作展示和下载名，不参与路径；未创建构建或解析内容。
+- 验证结果：核对 [FastAPI 上传文件](https://fastapi.tiangolo.com/tutorial/request-files/)、[Starlette 文件响应](https://www.starlette.io/responses/)、[SQLAlchemy 会话回滚](https://docs.sqlalchemy.org/en/20/orm/session_basics.html) 及 [python-multipart 发行信息](https://pypi.org/project/python-multipart/)；在专用临时 PostgreSQL 容器中运行全量 `pytest -q`，`10 passed`，另有 1 个既有 TestClient 弃用警告。新增的 3 个集成测试检查三种格式、10 MiB 边界与超限、空文件、类型伪装、穿越文件名、同库重复及跨库独立、分页与原文件授权、成员被移除后的失效、数据库提交失败后暂存和最终文件均清理。`ruff check .`、`ruff format --check .`、`uv lock --check`、`git diff --check` 通过；测试随机库均已删除。
+- 遗留问题：PDF 只验证基本头尾结构，本步不解析，无法证明含可提取文本；扫描 PDF 将在解析步骤明确标记不支持。上传解析器可能在应用读取前将 multipart 文件暂存，实际部署还需在入口层配置请求体大小限制。文档保持 `uploaded` 且不可检索；删除、构建及模型调用未实现。数据库集成测试未提供 `TEST_POSTGRES_ADMIN_URL` 时会明确跳过。
+- 下一步入口：等待新的编号任务；未来解析和构建应沿用文档私有存储键、权限守卫与 `active_build_id` 发布契约，先更新契约再修改实现。

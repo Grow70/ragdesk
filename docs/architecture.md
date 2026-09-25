@@ -99,7 +99,7 @@ flowchart TD
 
 核心表采用 Alembic 显式迁移，应用启动不调用 `create_all`。`active_build_id` 使用 `(documents.id, active_build_id)` 到 `(document_builds.document_id, id)` 的组合外键，防止指向其他文档的构建；可检索块查询还需检查当前库、未删除和 build 状态为 `ready`。第 5 步为 `users` 增加可空的 `login_name` 与 `password_hash`，使第 4 步已有的无登录资料用户仍可保留；仅演示初始化命令创建带 Argon2id 哈希的可登录用户。表定义与迁移用法参考 [SQLAlchemy 声明式映射](https://docs.sqlalchemy.org/en/20/orm/declarative_tables.html)、[PostgreSQL 方言](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html) 和 [Alembic 迁移教程](https://alembic.sqlalchemy.org/en/latest/tutorial.html)。
 
-构建状态：`queued → processing → ready` 或 `queued/processing → failed`。`ready` 表示该 build 的全部解析、分块、向量及索引记录已经完成并校验；只有被 `documents.active_build_id` 指向的 ready build 才对检索生效。`failed` 必须有机器可识别的错误码和供管理员查看的安全说明。文档对外状态至少有 `processing`、`ready`、`failed`、`deleted`；若重建失败但旧 active build 仍在，文档保持 `ready`，同时展示最新构建 `failed` 及原因。F2 的任务状态可映射到构建状态，但任务不是引用来源。
+构建状态：`queued → processing → ready` 或 `queued/processing → failed`。`ready` 表示该 build 的全部解析、分块、向量及索引记录已经完成并校验；只有被 `documents.active_build_id` 指向的 ready build 才对检索生效。`failed` 必须有机器可识别的错误码和供管理员查看的安全说明。文档对外状态至少有 `uploaded`、`processing`、`ready`、`failed`、`deleted`；第 8 步只保存原文件且不创建 build，因此新文档为 `uploaded`、`active_build_id` 为空且不可检索。若重建失败但旧 active build 仍在，文档保持 `ready`，同时展示最新构建 `failed` 及原因。F2 的任务状态可映射到构建状态，但任务不是引用来源。
 
 发布时在同一个 PostgreSQL 事务内核对构建仍属该文档、状态为 ready、片段完整、文档未删除；引入向量列后还须核对向量齐全，再切换 `active_build_id`。首次构建未完整成功前指针为空；重建期间旧指针继续服务，失败时指针不变。检索和来源查询仅查询有效指针；候选写入再多也不可见。删除在事务中设置 `deleted_at` 并清空指针，删除成功后新请求立即不可见；物理文件及旧片段的清理可稍后执行，但来源接口也必须检查删除标记。发布与删除竞争时用文档行锁或等效条件更新串行化，不能让已删除文档重新发布。
 
@@ -134,13 +134,13 @@ flowchart TD
 | 认证 | `POST /auth/session`, `GET /auth/me` | 登录入口 / 已认证 | `POST` 接收 `{ "login_name": "...", "password": "..." }`，返回 Bearer `access_token`、`expires_in` 和 `request_id`；`me` 返回从已验证令牌识别的用户 ID、登录名、显示名和 `request_id`。第 5 步不提供注销或令牌撤销接口。 |
 | 知识库 | `GET /knowledge-bases`, `POST /knowledge-bases`, `GET /knowledge-bases/{kb_id}` | 已认证；详情需成员 | 仅列出有权访问的库；创建者为管理员。 |
 | 成员授权 | `GET /knowledge-bases/{kb_id}/members`, `PUT /knowledge-bases/{kb_id}/members/{user_id}`, `DELETE /knowledge-bases/{kb_id}/members/{user_id}` | 管理员 | 查看、授予或调整该库成员角色，或移除成员；`PUT` 请求 `{ "role": "member" | "admin" }`；不允许移除或降级最后一名管理员。未知库或非成员统一 `404`。 |
-| 文档 | `POST /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents/{document_id}`, `DELETE /knowledge-bases/{kb_id}/documents/{document_id}` | 管理员 | 上传、列表与状态、详情、删除；重复上传返回已有 ID。 |
+| 文档 | `POST /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents/{document_id}`, `GET /knowledge-bases/{kb_id}/documents/{document_id}/raw`, `DELETE /knowledge-bases/{kb_id}/documents/{document_id}` | 上传、删除限管理员；读取需成员 | 上传、分页列表与状态、详情、受保护的原文件下载；重复上传返回已有 ID。删除留待后续步骤。 |
 | 来源 | `GET /knowledge-bases/{kb_id}/sources/{document_id}/{build_id}/{chunk_id}` | 成员或管理员 | 返回授权片段及位置；删除或无权时不返回内容。 |
 | 检索 | `POST /knowledge-bases/{kb_id}/search` | 成员或管理员 | 请求 `{ "query": "..." }`，返回当前库有效构建的片段和定位。 |
 | 问答 | `POST /knowledge-bases/{kb_id}/answers` | 成员或管理员 | 请求 `{ "question": "..." }`，返回 `AnswerResult`。 |
 | 任务查询 | `GET /knowledge-bases/{kb_id}/tasks/{task_id}` | 管理员 | F2 启用；返回任务、文档、构建状态与安全的失败原因。基础阶段可保留接口契约，未启用时不假装后台任务存在。 |
 
-上传使用 `multipart/form-data`，文件字段名 `file`。基础范围可在处理完成后返回 `201`，响应携带 `document_id`、`build_id`、最终状态和 `request_id`；重复上传返回 `200` 和原 `document_id`。F2 引入后台入库后，可返回 `202`、`task_id`、初始状态和查询路径。调用者始终以文档状态而非上传 HTTP 成功与否判断是否可检索。
+上传使用 `multipart/form-data`，文件字段名 `file`。第 8 步接受 `.md`、`.txt`、`.pdf` 且单文件最多 10 MiB；检查文本 UTF-8 与常见二进制伪装，PDF 检查基础头尾结构，但不解析、不能由此证明 PDF 含可提取文本。扫描件将在解析步骤明确拒绝。原文件只存私有目录，以服务端生成的键定位；下载接口每次检查成员权限，不公开静态映射。第 8 步上传成功返回 `201`、`document_id`、`status: uploaded`、`request_id`，重复上传返回 `200` 和已有 ID；列表用 `limit`（默认 20、最多 100）及 `offset`（默认 0）分页，返回 `items`、`total`、`limit`、`offset`、`request_id`。后续入库步骤成功后才会返回 `build_id` 与可检索状态。F2 引入后台入库后，可返回 `202`、`task_id`、初始状态和查询路径。调用者始终以文档状态而非上传 HTTP 成功与否判断是否可检索。
 
 ### 请求与响应示例
 
@@ -186,7 +186,7 @@ flowchart TD
 文档上传请求示例：`POST /api/v1/knowledge-bases/kb_a/documents`，`multipart/form-data` 中发送 `file=@sample.pdf`。基础范围的成功响应示例 `201`：
 
 ```json
-{ "document_id": "doc_1", "build_id": "build_1", "status": "ready", "request_id": "req_126" }
+{ "document_id": "doc_1", "status": "uploaded", "request_id": "req_126" }
 ```
 
 F2 任务查询响应示例 `200`：
