@@ -83,3 +83,10 @@
 - 验证结果：核对 [pypdf 文本提取与 OCR 限制](https://pypdf.readthedocs.io/en/stable/user/extract-text.html)、[PdfReader 加密状态](https://pypdf.readthedocs.io/en/stable/modules/PdfReader.html)、[PageObject 图片访问](https://pypdf.readthedocs.io/en/stable/modules/PageObject.html) 与 [PyPI 版本](https://pypi.org/project/pypdf/) 官方资料。`tests/test_pdf_parser.py` 的 6 项测试通过：固定 PDF 的中文、`680 元`、`2026-09-25`、`NX-210-P` 和第 4 页的 `15 个自然日` 保留；页码为 `[1, 4]` 而 section 序号为 `[0, 1]`；第 2、3 页分别为无文字及图片页警告，状态为 `partial`；纯文字 PDF 为 `complete`；加密、损坏和整份无文字均报明确错误。实际运行预览命令返回相同页码、警告和状态。全量 `pytest -q` 为 `21 passed, 7 skipped, 1 warning`；7 项数据库集成测试因未提供 `TEST_POSTGRES_ADMIN_URL` 而跳过，1 项为既有 TestClient 弃用警告。`ruff check .`、`ruff format --check .`、`uv lock --check`、`git diff --check` 通过；首次 Ruff 检查的导入顺序和长行问题已修正后复查通过。
 - 遗留问题：无文字图片页仅能标为疑似扫描页；含隐藏 OCR 文字层的扫描件可能被 pypdf 提取为文字，无法保证其正确性。暂不支持 OCR、复杂表格结构恢复和复杂双栏排版；本步未实现构建发布，因此 `partial` 阻止发布仍由未来构建服务落实。
 - 下一步入口：等待新的编号任务；后续构建服务消费 `PdfParseResult` 时须检查 `status` 与逐页警告，只允许完整成功的构建按既有发布契约生效。
+
+## 第 11 步：切块器
+
+- 已完成：先更新架构契约，定义不含数据库 ID 的 `ChunkDraft`、逐段原文定位的 `ChunkSourceSpan`、可配置的字符级 `ChunkConfig` 与 `ChunkStats`；实现从 `ParsedSection` 到草稿的纯函数。按文档、标题路径、物理页分组，代码块独立，优先段落及中文句界，超长内容按字符拆分并仅在拆分时重叠。校验参数和跨文档混用，不生成空块或扩充短文本；无新增依赖或锁文件改动。README 增加预览命令及重叠取舍说明。未写库、生成向量或调用模型。
+- 验证结果：核对 Python 官方 `dataclasses`、`hashlib.sha256` 和 Unicode 字符串文档。新增 18 项切块测试通过，涵盖默认值、短文本、标题与段落边界、中文句号、超长无标点段落、空文本、代码块及超长代码原文切片、PDF 跨页隔离与物理页定位、结果确定性、重复内容统计、非法参数和跨文档输入。全量 `pytest -q` 为 `39 passed, 7 skipped, 1 warning`；7 项数据库集成测试因未配置 `TEST_POSTGRES_ADMIN_URL` 跳过，警告为既有 TestClient 上游弃用提示。`ruff check .`、`ruff format --check .`、`uv lock --check` 和 `git diff --check` 均通过。实际运行 A 库报销资料预览得到 4 个草稿，输入/输出均 316 字符、无超限或完全重复块。
+- 遗留问题：字符上限不是模型 token 上限；复杂排版和语义边界仍受上游解析质量影响。`short_chunks` 以块上限一半为阈值，样例按标题拆分后 4 块均被标记为短块，属于可观察统计而非自动质量结论。后续持久化必须保存或映射 `source_spans`，现有数据库 `chunks` 表还没有逐段字符范围字段；本步不证明检索召回效果。
+- 下一步入口：等待新的编号任务；若将草稿入库，先更新契约及迁移以保留精确来源，并独立验证权限、构建发布和检索过滤。

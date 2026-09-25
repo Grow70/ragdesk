@@ -96,6 +96,19 @@ uv run --locked python -c "from app.parsers.pdf import parse_pdf; r = parse_pdf(
 uv run --locked pytest -q tests/test_pdf_parser.py
 ```
 
+## 切块预览
+
+第 11 步的 `chunk_sections` 接收解析器输出的 `ParsedSection` 列表，返回 `ChunkDraft` 与 `ChunkStats`，不写数据库或调用模型。默认每块最多 600 个 Python 字符（Unicode 码点），拆分时重叠 80 个字符；可通过 `ChunkConfig(chunk_size=..., overlap=...)` 调整。优先保留标题、段落、句子边界，超长内容才按字符切；同一 PDF 的不同物理页不会拼接。草稿的 `source_spans` 记录 section 内字符范围和原始页码或行号，后续构建时才能分配数据库 ID。
+
+在 `backend` 目录运行以下 PowerShell 命令预览模拟资料并验收：
+
+```powershell
+uv run --locked python -c "from app.parsers.text import parse_file; from app.chunking import chunk_sections; r = chunk_sections(parse_file('../data/sample_docs/a/A-EXP-001.md')); print(r.stats); print([(c.ordinal, c.heading_path, c.page_number, c.text) for c in r.chunks])"
+uv run --locked pytest -q tests/test_chunker.py
+```
+
+重叠能让跨切分点的事实在相邻块中保有上下文，提高这类问题的召回机会；也会增加存储、嵌入成本和相近检索结果。统计中的 `duplicate_chunks` 只表示正文完全相同，`short_chunks` 指短于块上限一半，不能据此推断真实检索效果。
+
 ## 数据库结构
 
 应用启动不会创建或修改表。在 `backend` 目录中，确认 `DATABASE_URL` 指向预期的**新建开发数据库**后，显式执行迁移：
