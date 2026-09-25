@@ -85,6 +85,17 @@ uv run --locked python -m app.parsers.cli ..\data\sample_docs\a\A-EXP-001.md
 
 已有数据库文档 ID 时可追加 `--document-id <ID>`；独立预览时输出的 `document_id` 为 `null`。此命令不需要数据库或模型配置。
 
+## 文本型 PDF 解析预览
+
+第 10 步使用 pypdf 逐页提取 PDF 文字，复用 `ParsedSection`。`page_number` 和 `source_locator` 记录从 1 开始的**物理页码**；无文字的空白页或图片页不会生成正文 section，但会在 `PdfParseResult.warnings` 中逐页报告，状态为 `partial`。整份无可提取文字、加密或损坏时返回明确的解析错误。暂不支持 OCR、复杂表格结构恢复和复杂双栏排版；PDF 中隐藏的 OCR 文字层也不能保证正确。
+
+在 `backend` 目录运行以下 PowerShell 命令查看固定测试 PDF 的页码、状态和警告：
+
+```powershell
+uv run --locked python -c "from app.parsers.pdf import parse_pdf; r = parse_pdf('tests/fixtures/pdf_mixed.pdf'); print(r.status); print([(s.page_number, s.text) for s in r.sections]); print([(w.page_number, w.code) for w in r.warnings])"
+uv run --locked pytest -q tests/test_pdf_parser.py
+```
+
 ## 数据库结构
 
 应用启动不会创建或修改表。在 `backend` 目录中，确认 `DATABASE_URL` 指向预期的**新建开发数据库**后，显式执行迁移：

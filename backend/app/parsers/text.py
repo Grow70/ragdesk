@@ -22,8 +22,8 @@ class ParsedSection:
     page_number: int | None
     source_locator: str
     document_id: str | None
-    start_line: int
-    end_line: int
+    start_line: int | None
+    end_line: int | None
     block_type: BlockType
 
 

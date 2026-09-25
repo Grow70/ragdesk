@@ -76,3 +76,10 @@
 - 验证结果：核对 Python 官方 [UTF-8 BOM 编解码](https://docs.python.org/3.12/library/codecs.html)、[pathlib 文件读取](https://docs.python.org/3.12/library/pathlib.html)、[JSON 输出](https://docs.python.org/3.12/library/json.html) 文档。固定的 A 库 Markdown/TXT 模拟资料和专门构造的 Markdown 样例通过 12 项解析测试：标题路径、原文行号和段落顺序正确，`680 元`、`15 个自然日`、`NX-210-P`、HTTP 错误码与金额不丢失；BOM、代码不执行、CLI 输出和各类错误码均验证。项目全量 `pytest -q` 为 `15 passed, 7 skipped, 1 warning`：7 项数据库集成检查因未设置 `TEST_POSTGRES_ADMIN_URL` 而跳过，1 项为既有 TestClient 弃用警告。`ruff check .`、`ruff format --check .`、`uv lock --check`、`git diff --check` 通过；首次 Ruff 检查因新文件长行失败，格式化后重跑通过。
 - 遗留问题：这是面向演示语料的轻量 Markdown 解析，复杂的嵌套块、内联语法和 HTML 不做完整 CommonMark 语法分析；TXT 不推断标题。PDF 仍未解析；本步不产生检索结果或 RAG 效果结论。
 - 下一步入口：等待新的编号任务；后续切块或索引构建可消费 `ParsedSection` 的原文行号与标题路径，必要的契约变化应先更新架构文档。
+
+## 第 10 步：文本型 PDF 解析器
+
+- 已完成：先更新架构契约，使 `ParsedSection` 的行号可空，并约定 PDF 的物理页码、逐页警告及 `complete/partial` 结果；后续构建不得把部分解析当作完整成功发布。新增 pypdf 解析器，逐页输出有文字的 `ParsedSection`，对空白页和无文字图片页分别记录警告；加密、损坏、整份无可提取文字及文件缺失返回稳定错误码。加入锁定的 `pypdf 6.19.0`、20605 字节的虚构四页固定 PDF、测试及使用说明。未接入 OCR、大型解析模型、切块或 Embedding。
+- 验证结果：核对 [pypdf 文本提取与 OCR 限制](https://pypdf.readthedocs.io/en/stable/user/extract-text.html)、[PdfReader 加密状态](https://pypdf.readthedocs.io/en/stable/modules/PdfReader.html)、[PageObject 图片访问](https://pypdf.readthedocs.io/en/stable/modules/PageObject.html) 与 [PyPI 版本](https://pypi.org/project/pypdf/) 官方资料。`tests/test_pdf_parser.py` 的 6 项测试通过：固定 PDF 的中文、`680 元`、`2026-09-25`、`NX-210-P` 和第 4 页的 `15 个自然日` 保留；页码为 `[1, 4]` 而 section 序号为 `[0, 1]`；第 2、3 页分别为无文字及图片页警告，状态为 `partial`；纯文字 PDF 为 `complete`；加密、损坏和整份无文字均报明确错误。实际运行预览命令返回相同页码、警告和状态。全量 `pytest -q` 为 `21 passed, 7 skipped, 1 warning`；7 项数据库集成测试因未提供 `TEST_POSTGRES_ADMIN_URL` 而跳过，1 项为既有 TestClient 弃用警告。`ruff check .`、`ruff format --check .`、`uv lock --check`、`git diff --check` 通过；首次 Ruff 检查的导入顺序和长行问题已修正后复查通过。
+- 遗留问题：无文字图片页仅能标为疑似扫描页；含隐藏 OCR 文字层的扫描件可能被 pypdf 提取为文字，无法保证其正确性。暂不支持 OCR、复杂表格结构恢复和复杂双栏排版；本步未实现构建发布，因此 `partial` 阻止发布仍由未来构建服务落实。
+- 下一步入口：等待新的编号任务；后续构建服务消费 `PdfParseResult` 时须检查 `status` 与逐页警告，只允许完整成功的构建按既有发布契约生效。
