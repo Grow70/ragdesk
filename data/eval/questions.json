@@ -1,0 +1,695 @@
+[
+  {
+    "id": "E7B-D01",
+    "question": "A 库普通城市住宿费每间夜的报销上限是多少？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "普通城市住宿按实际发票金额报销，每间夜上限为人民币 680 元。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-EXP-001",
+        "section": "住宿标准与材料",
+        "quote": "普通城市住宿按实际发票金额报销，每间夜上限为人民币 680 元。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:finance",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D02",
+    "question": "A 库差旅结束后应在多少个自然日内提交完整报销材料？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "结束当日不计，从次日起 15 个自然日内提交完整材料。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-EXP-001",
+        "section": "提交期限与例外",
+        "quote": "出差结束当日不计，从次日起 15 个自然日内提交完整材料。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:finance",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D03",
+    "question": "A 库国内客户现场拜访通常要提前几个工作日提交出行申请？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "须在出发前至少 2 个工作日提交出行申请。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-TRV-002",
+        "section": "行前申请",
+        "quote": "国内客户现场拜访须在出发前至少 2 个工作日提交出行申请，填写客户项目编号、目的地和预计住宿间夜数。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:finance",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D04",
+    "question": "A 库连续年休假达到 3 个工作日时，要提前多久申请？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "连续年休假达到 3 个工作日，须提前 5 个工作日申请。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-LEV-003",
+        "section": "年休假",
+        "quote": "连续休假达到 3 个工作日时，须提前 5 个工作日申请；不足 3 个工作日时，须提前 2 个工作日申请。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:leave",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D05",
+    "question": "A 库连续病假超过 2 个工作日，需要补交什么？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "连续病假超过 2 个工作日须补交医疗证明。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-LEV-003",
+        "section": "调休与病假",
+        "quote": "连续病假超过 2 个工作日须补交医疗证明。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:leave",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D06",
+    "question": "B 库国内客户拜访住宿每间夜的普通报销上限是多少？",
+    "kb_id": "B",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "B 库国内客户拜访住宿每间夜上限为人民币 520 元。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "B-EXP-001",
+        "section": "住宿与材料",
+        "quote": "B 库的国内客户拜访住宿按实际发票金额报销，每间夜上限为人民币 520 元。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "B:finance",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-P01",
+    "question": "在 A 库普通城市出差，住宿发票每晚 700 元、又没有出发前书面特批，可以全额报销吗？",
+    "kb_id": "A",
+    "category": "paraphrase",
+    "answerable": true,
+    "expected_facts": [
+      "A 库普通城市住宿上限为每间夜 680 元。",
+      "超出上限的部分须在出发前获得财务负责人书面特批；题设缺少特批，不能全额报销。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-EXP-001",
+        "section": "住宿标准与材料",
+        "quote": "普通城市住宿按实际发票金额报销，每间夜上限为人民币 680 元。"
+      },
+      {
+        "document_id": "A-EXP-001",
+        "section": "住宿标准与材料",
+        "quote": "超出上限的部分，只有在出发前取得财务负责人书面特批时才可报销。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:finance",
+    "review_status": "draft",
+    "paraphrase_of": "E7B-D01"
+  },
+  {
+    "id": "E7B-P02",
+    "question": "A 库员工一连请 3 个工作日病假，还需要提供医院证明吗？",
+    "kb_id": "A",
+    "category": "paraphrase",
+    "answerable": true,
+    "expected_facts": [
+      "3 个工作日超过 2 个工作日，须补交医疗证明。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-LEV-003",
+        "section": "调休与病假",
+        "quote": "连续病假超过 2 个工作日须补交医疗证明。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:leave",
+    "review_status": "draft",
+    "paraphrase_of": "E7B-D05"
+  },
+  {
+    "id": "E7B-P03",
+    "question": "B 库客户拜访住 600 元一晚，事前没有财务主管书面特批，能把住宿费全部报掉吗？",
+    "kb_id": "B",
+    "category": "paraphrase",
+    "answerable": true,
+    "expected_facts": [
+      "B 库每间夜上限为 520 元。",
+      "超过上限的部分仅在出发前取得 B 库财务主管书面特批时可报销；题设不满足。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "B-EXP-001",
+        "section": "住宿与材料",
+        "quote": "B 库的国内客户拜访住宿按实际发票金额报销，每间夜上限为人民币 520 元。"
+      },
+      {
+        "document_id": "B-EXP-001",
+        "section": "住宿与材料",
+        "quote": "超额住宿只在出发前取得 B 库财务主管书面特批时可报销；客户邮件或 A 库审批单均不构成特批。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "B:finance",
+    "review_status": "draft",
+    "paraphrase_of": "E7B-D06"
+  },
+  {
+    "id": "E7B-C01",
+    "question": "只看 A 库规则：普通城市客户现场出差已按期获批，住宿每间夜 650 元且行程单、电子发票齐全，但结束后第 16 个自然日才提交，也没有平台故障工单，能按现有条件报销吗？",
+    "kb_id": "A",
+    "category": "cross_document",
+    "answerable": true,
+    "expected_facts": [
+      "按期获批的行程不保证费用一定可报销，审批不能代替报销期限。",
+      "650 元低于 A 库普通城市每间夜 680 元上限。",
+      "第 16 个自然日超过 15 天提交期限；无平台故障工单不能适用该例外，因此按题设不能报销。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-TRV-002",
+        "section": "与报销规则的关系",
+        "quote": "即使出行申请已批准，超过提交期限仍需满足报销规则中的平台故障例外，不能用行程审批代替。"
+      },
+      {
+        "document_id": "A-EXP-001",
+        "section": "住宿标准与材料",
+        "quote": "普通城市住宿按实际发票金额报销，每间夜上限为人民币 680 元。"
+      },
+      {
+        "document_id": "A-EXP-001",
+        "section": "提交期限与例外",
+        "quote": "出差结束当日不计，从次日起 15 个自然日内提交完整材料。若报销平台故障导致无法提交，须保留标有故障时间的 IT 工单，并在平台恢复后 3 个自然日内补交；仅称“工作忙”不构成例外。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:finance",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-C02",
+    "question": "A 库普通城市客户拜访计划住宿 4 晚，每晚 600 元；只看审批允许的间夜数和住宿单价，这份计划是否同时满足两项规则？",
+    "kb_id": "A",
+    "category": "cross_document",
+    "answerable": true,
+    "expected_facts": [
+      "A 库出行审批单最多核定 3 间夜，计划的 4 晚超过此数。",
+      "每晚 600 元低于普通城市 680 元上限；金额条件满足，但间夜数条件不满足。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-TRV-002",
+        "section": "行前申请",
+        "quote": "部门负责人在审批单中核定最多 3 间夜；这表示行程获准，并不保证任何费用一定可报销。"
+      },
+      {
+        "document_id": "A-EXP-001",
+        "section": "住宿标准与材料",
+        "quote": "普通城市住宿按实际发票金额报销，每间夜上限为人民币 680 元。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:finance",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-C03",
+    "question": "A 库 NX-210 客户发生影响生产使用的 P1，负责人同意先出行且留有事件编号，出发后 1 个工作日补审批，返程后第 14 个自然日提交完整报销材料；这是否满足紧急出行补审批和报销时限两项条件？",
+    "kb_id": "A",
+    "category": "cross_document",
+    "answerable": true,
+    "expected_facts": [
+      "P1 客户事件在记录事件编号及负责人同意后可先出行，并在出发后 1 个工作日内补审批。",
+      "报销从结束次日起 15 个自然日内提交；第 14 日满足期限。",
+      "只能判断题设的两项条件，完整报销仍需满足金额与发票等其他规则。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-TRV-002",
+        "section": "紧急出行",
+        "quote": "若 NX-210 客户出现影响生产使用的 P1 事件，可先出行，但须记录事件编号和负责人同意记录，并在出发后 1 个工作日内补齐审批。"
+      },
+      {
+        "document_id": "A-EXP-001",
+        "section": "提交期限与例外",
+        "quote": "出差结束当日不计，从次日起 15 个自然日内提交完整材料。"
+      },
+      {
+        "document_id": "A-EXP-001",
+        "section": "住宿标准与材料",
+        "quote": "申请人须提交行程单、差旅审批记录和抬头正确的电子发票；支付截图不能代替发票。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:finance",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-U01",
+    "question": "A 库年休假未用完的天数最多可以结转到下一年多少天？",
+    "kb_id": "A",
+    "category": "insufficient_evidence",
+    "answerable": false,
+    "expected_facts": [],
+    "gold_evidence": [],
+    "split": "dev",
+    "fact_group": "A:leave",
+    "review_status": "draft",
+    "missing_information": "A-LEV-003 只规定申请和交接，没有年休假结转额度或期限。",
+    "checked_document_ids": [
+      "A-EXP-001",
+      "A-TRV-002",
+      "A-LEV-003",
+      "A-PRD-004",
+      "A-API-005",
+      "A-OPS-006"
+    ]
+  },
+  {
+    "id": "E7B-U02",
+    "question": "A 库国际客户拜访住宿每间夜的报销上限是多少？",
+    "kb_id": "A",
+    "category": "insufficient_evidence",
+    "answerable": false,
+    "expected_facts": [],
+    "gold_evidence": [
+      {
+        "document_id": "A-EXP-001",
+        "section": "适用范围",
+        "quote": "本规则适用于已获差旅审批的国内客户拜访。"
+      }
+    ],
+    "split": "dev",
+    "fact_group": "A:finance",
+    "review_status": "draft",
+    "missing_information": "A-EXP-001 仅声明国内客户拜访适用范围，不能推出国际差旅住宿上限。",
+    "checked_document_ids": [
+      "A-EXP-001",
+      "A-TRV-002",
+      "A-LEV-003",
+      "A-PRD-004",
+      "A-API-005",
+      "A-OPS-006"
+    ]
+  },
+  {
+    "id": "E7B-U03",
+    "question": "B 库国内客户拜访的每日餐补标准是多少元？",
+    "kb_id": "B",
+    "category": "insufficient_evidence",
+    "answerable": false,
+    "expected_facts": [],
+    "gold_evidence": [],
+    "split": "dev",
+    "fact_group": "B:finance",
+    "review_status": "draft",
+    "missing_information": "B-EXP-001 规定住宿、材料和提交期限，没有每日餐补金额。",
+    "checked_document_ids": [
+      "B-EXP-001",
+      "B-OPS-002"
+    ]
+  },
+  {
+    "id": "E7B-D07",
+    "question": "A 库 NX-210-B 基础版支持怎样导入客户资料？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "NX-210-B 基础版支持手动导入 CSV。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-PRD-004",
+        "section": "产品与版本",
+        "quote": "NX-210-B 为基础版，支持手动导入 CSV；NX-210-P 为专业版，除手动导入外，还支持通过 API 发起批量同步。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D08",
+    "question": "A 库 NX-210-P 批量同步每批最多允许多少条记录？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "NX-210-P 批量同步每批最多 500 条记录。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-PRD-004",
+        "section": "批量同步条件",
+        "quote": "每批最多 500 条记录。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D09",
+    "question": "A 库同一租户的批量同步请求超过每分钟 60 次时，返回什么 HTTP 状态和业务错误码？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "超过每分钟 60 次返回 HTTP 429 / RATE_LIMIT。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-API-005",
+        "section": "二、请求频率与权限",
+        "quote": "同一租户超过每分钟 60 次批量同步请求时，接口返回 HTTP 429 / RATE_LIMIT，并在 Retry-After 响应头给出建议等待秒数。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D10",
+    "question": "A 库接口在并发修改同一批次版本号时返回哪个错误？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "并发修改同一批次版本号返回 HTTP 409 / REVISION_CONFLICT。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-API-005",
+        "section": "三、参数与版本冲突",
+        "quote": "并发修改同一批次版本号时返回 HTTP 409 / REVISION_CONFLICT；这与 429 的请求频率限制不同，不能仅靠延长等待时间解决。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D11",
+    "question": "A 库 NX-210-P 生产接口按 5xx 错误率判定 P1 的数值和持续时间门槛是什么？",
+    "kb_id": "A",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "HTTP 5xx 错误率须连续 5 分钟高于 2%。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-OPS-006",
+        "section": "事件分级",
+        "quote": "NX-210-P 生产接口的 HTTP 5xx 错误率连续 5 分钟高于 2% 时，值班人将事件定为 P1。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-D12",
+    "question": "B 库镜像服务按 5xx 错误率判定 P1 的门槛是什么？",
+    "kb_id": "B",
+    "category": "direct_fact",
+    "answerable": true,
+    "expected_facts": [
+      "生产环境 HTTP 5xx 错误率连续 10 分钟高于 3% 才按 P1 处理。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "B-OPS-002",
+        "section": "一、事件分级",
+        "quote": "B 库的 NX-210-P 镜像服务在生产环境中，HTTP 5xx 错误率连续 10 分钟高于 3% 才按 P1 处理。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "B:ops",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-P04",
+    "question": "A 库 Pro 版一次提交 600 条同步记录，会被接受吗？",
+    "kb_id": "A",
+    "category": "paraphrase",
+    "answerable": true,
+    "expected_facts": [
+      "NX-210-P 每批最多 500 条，600 条超过限制，会被参数校验拒绝。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-PRD-004",
+        "section": "批量同步条件",
+        "quote": "每批最多 500 条记录。超过单批数量会被参数校验拒绝；"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft",
+    "paraphrase_of": "E7B-D08"
+  },
+  {
+    "id": "E7B-P05",
+    "question": "A 库同一租户一分钟调用批量接口 70 次，限流时应看到哪个状态码，并查看哪个响应头？",
+    "kb_id": "A",
+    "category": "paraphrase",
+    "answerable": true,
+    "expected_facts": [
+      "70 次超过每分钟 60 次限制，应返回 HTTP 429 / RATE_LIMIT。",
+      "查看 Retry-After 响应头中的建议等待秒数。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-API-005",
+        "section": "二、请求频率与权限",
+        "quote": "同一租户超过每分钟 60 次批量同步请求时，接口返回 HTTP 429 / RATE_LIMIT，并在 Retry-After 响应头给出建议等待秒数。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft",
+    "paraphrase_of": "E7B-D09"
+  },
+  {
+    "id": "E7B-P06",
+    "question": "只按 B 库的数值规则，5xx 错误率 2.5% 持续 6 分钟够不够 P1？",
+    "kb_id": "B",
+    "category": "paraphrase",
+    "answerable": true,
+    "expected_facts": [
+      "B 库要求高于 3% 且连续 10 分钟；2.5% 持续 6 分钟不满足。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "B-OPS-002",
+        "section": "一、事件分级",
+        "quote": "B 库的 NX-210-P 镜像服务在生产环境中，HTTP 5xx 错误率连续 10 分钟高于 3% 才按 P1 处理。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "B:ops",
+    "review_status": "draft",
+    "paraphrase_of": "E7B-D12"
+  },
+  {
+    "id": "E7B-C04",
+    "question": "只看 A 库：NX-210-P 一批同步 400 条，同一租户一分钟发出 70 次请求并收到 HTTP 429；仅凭这些信息能定为 P1 吗？",
+    "kb_id": "A",
+    "category": "cross_document",
+    "answerable": true,
+    "expected_facts": [
+      "NX-210-P 每批最多 500 条，400 条未超单批上限。",
+      "70 次超过每分钟 60 次限制，429 是 RATE_LIMIT。",
+      "429 是 4xx，不计入 5xx 错误率；仅凭这些信息不能定 P1，若有其他 5xx 需另行核实。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-PRD-004",
+        "section": "批量同步条件",
+        "quote": "每批最多 500 条记录。"
+      },
+      {
+        "document_id": "A-API-005",
+        "section": "二、请求频率与权限",
+        "quote": "同一租户超过每分钟 60 次批量同步请求时，接口返回 HTTP 429 / RATE_LIMIT，并在 Retry-After 响应头给出建议等待秒数。"
+      },
+      {
+        "document_id": "A-API-005",
+        "section": "四、故障判别",
+        "quote": "HTTP 429 属于 4xx 限流响应，不计入《A 库运维事件流程》（A-OPS-006）的 5xx 错误率。"
+      },
+      {
+        "document_id": "A-OPS-006",
+        "section": "事件分级",
+        "quote": "单个客户的 429 激增应先核对接口限流规则，不凭该现象直接宣告 P1。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-C05",
+    "question": "A 库 NX-210-B 用户虽能 SSO 登录，但令牌没有 sync:write，是否能使用批量同步 API？",
+    "kb_id": "A",
+    "category": "cross_document",
+    "answerable": true,
+    "expected_facts": [
+      "NX-210-B 只列明手动 CSV 导入，批量同步 API 是 NX-210-P 的能力。",
+      "批量同步 API 需要 sync:write 范围；SSO 登录不自动授予该范围。",
+      "题设同时缺少版本能力与令牌范围，不能使用批量同步 API。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-PRD-004",
+        "section": "产品与版本",
+        "quote": "NX-210-B 为基础版，支持手动导入 CSV；NX-210-P 为专业版，除手动导入外，还支持通过 API 发起批量同步。"
+      },
+      {
+        "document_id": "A-PRD-004",
+        "section": "产品与版本",
+        "quote": "两个版本都支持单点登录（SSO），但 SSO 权限不等于批量同步 API 权限。"
+      },
+      {
+        "document_id": "A-API-005",
+        "section": "二、请求频率与权限",
+        "quote": "缺少 sync:write 范围时返回 HTTP 403 / SCOPE_DENIED；拥有 SSO 登录权限不自动获得此范围。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-C06",
+    "question": "A 库已批准的计划维护窗口结束后，NX-210-P 接口仍返回 HTTP 503，整体 5xx 错误率 2.5% 且持续 6 分钟；应继续只按维护单处理，还是转为 P1？",
+    "kb_id": "A",
+    "category": "cross_document",
+    "answerable": true,
+    "expected_facts": [
+      "HTTP 503 属于运维流程统计的 5xx。",
+      "窗口结束后持续高于 2% 且超过 5 分钟，满足 P1 条件，应转入 P1。"
+    ],
+    "gold_evidence": [
+      {
+        "document_id": "A-API-005",
+        "section": "四、故障判别",
+        "quote": "若接口返回 HTTP 503 / SERVICE_UNAVAILABLE，才属于该流程统计的 5xx；计划维护期间的处理仍需查看运维流程中的例外条款。"
+      },
+      {
+        "document_id": "A-OPS-006",
+        "section": "事件分级",
+        "quote": "NX-210-P 生产接口的 HTTP 5xx 错误率连续 5 分钟高于 2% 时，值班人将事件定为 P1。"
+      },
+      {
+        "document_id": "A-OPS-006",
+        "section": "计划维护例外",
+        "quote": "若 5xx 持续到窗口结束后仍高于阈值，则转入 P1。"
+      }
+    ],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft"
+  },
+  {
+    "id": "E7B-U04",
+    "question": "A 库 NX-210-P 批量同步成功后的数据保留天数是多少？",
+    "kb_id": "A",
+    "category": "insufficient_evidence",
+    "answerable": false,
+    "expected_facts": [],
+    "gold_evidence": [],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft",
+    "missing_information": "A-PRD-004 说明同步能力和结果显示，没有数据保留天数。",
+    "checked_document_ids": [
+      "A-EXP-001",
+      "A-TRV-002",
+      "A-LEV-003",
+      "A-PRD-004",
+      "A-API-005",
+      "A-OPS-006"
+    ]
+  },
+  {
+    "id": "E7B-U05",
+    "question": "A 库 NX-210 接口的 HTTP 401 对应哪个业务错误码？",
+    "kb_id": "A",
+    "category": "insufficient_evidence",
+    "answerable": false,
+    "expected_facts": [],
+    "gold_evidence": [],
+    "split": "test",
+    "fact_group": "A:product_api_ops",
+    "review_status": "draft",
+    "missing_information": "A-API-005 列出 403、409、422、429、503 等示例，没有给出 HTTP 401 的业务错误码。",
+    "checked_document_ids": [
+      "A-EXP-001",
+      "A-TRV-002",
+      "A-LEV-003",
+      "A-PRD-004",
+      "A-API-005",
+      "A-OPS-006"
+    ]
+  },
+  {
+    "id": "E7B-U06",
+    "question": "B 库 P1 关闭后必须在几小时内提交复盘报告？",
+    "kb_id": "B",
+    "category": "insufficient_evidence",
+    "answerable": false,
+    "expected_facts": [],
+    "gold_evidence": [],
+    "split": "test",
+    "fact_group": "B:ops",
+    "review_status": "draft",
+    "missing_information": "B-OPS-002 说明分级和确认/更新时限，没有复盘报告期限。",
+    "checked_document_ids": [
+      "B-EXP-001",
+      "B-OPS-002"
+    ]
+  }
+]
