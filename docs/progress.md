@@ -20,3 +20,10 @@
 - 验证结果：已核对 FastAPI、SQLAlchemy、Alembic、pgvector、React 和 LangGraph 官方资料。首次静态检查的代码块数量断言写错而失败；修正检查条件后通过，确认两张 Mermaid 图、七层、五种契约、三种回答状态、定位 ID 与六类接口均存在。未运行产品测试或渲染 Mermaid，因为目前只有文档。
 - 遗留问题：认证方案、模型供应商和兼容版本、依赖锁文件、文件限额、检索参数、任务执行方式与 Agent 上限仍需在各自实现任务中确定。
 - 下一步入口：等待下一个编号任务；若实现需要改变本文字段、状态、权限或接口，先更新架构契约。
+
+## 第 3 步：可启动后端工程
+
+- 已完成：初始化 `backend/pyproject.toml` 与 `backend/uv.lock`；建立 FastAPI 应用工厂、环境变量配置类、`/health/live`、request_id、基本日志和统一错误响应；按架构建立分层目录；添加不含密钥的 `.env.example`、Git 忽略规则、固定镜像标签及摘要的 PostgreSQL/pgvector Compose、扩展初始化 SQL、最小测试和 Windows PowerShell 启动说明。未实现业务表、登录、上传或模型调用。
+- 验证结果：`uv lock` 与 `uv sync --locked` 成功；`pytest -q` 为 3 passed、1 个上游 TestClient 弃用警告；`ruff check .` 和 `ruff format --check .` 通过。实际启动 Uvicorn 后，`/health/live` 返回 200 和 request_id，未知路径返回统一 404 错误体；移除必需配置后进程以明确变量名报错。Compose 数据库实际启动，查询确认 `vector` 扩展版本 0.8.6，随后已停止测试容器并删除本次创建的数据卷。首次测试因导入路径配置缺失而未收集、首次格式检查失败；定位后修复并重跑通过。首次 Compose 配置检查因未设置必需的测试密码失败，设置临时环境变量后通过。
+- 遗留问题：健康接口是进程存活检查，不验证数据库或模型；尚未验证真实模型。当前锁定的 FastAPI TestClient 组合有一个弃用警告，后续升级测试客户端时处理。
+- 下一步入口：等待下一个编号任务；新增数据库业务、认证、上传或模型调用前按架构契约拆分实现，并先定义相关边界测试。
