@@ -1,6 +1,6 @@
 # Ragdesk
 
-面向模拟企业资料的知识库问答系统。当前完成后端骨架、核心数据库表和演示用户身份认证。支持 `/health/live`、`/auth/session`、`/auth/me`；尚无知识库权限、上传或模型调用。
+面向模拟企业资料的知识库问答系统。当前完成后端骨架、核心数据库表、演示用户身份认证，以及知识库与成员权限。支持 `/health/live`、`/auth/session`、`/auth/me` 和 `/knowledge-bases`；尚无文档上传、检索、问答或模型调用。
 
 需求和后续实现契约分别见 [docs/requirements.md](docs/requirements.md) 与 [docs/architecture.md](docs/architecture.md)。
 
@@ -39,6 +39,21 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/auth/me -Headers @{ Authorization =
 ```
 
 健康接口应返回 `status: ok` 和非空 `request_id`，它只检查 Web 进程。登录成功返回有过期时间的 Bearer JWT；`/auth/me` 返回令牌对应的用户身份。`DATABASE_URL`、`MODEL_PROVIDER`、`MODEL_NAME`、`JWT_SECRET` 必需；`JWT_SECRET` 至少 32 字节，只从环境变量读取。`MODEL_API_KEY` 当前可不设置。配置类不自动加载 `.env`；[backend/.env.example](backend/.env.example) 不包含真实密钥。若数据库密码含 URL 特殊字符，构造 `DATABASE_URL` 时需先做 URL 编码。演示配置和密码不作为生产默认配置；重新生成签名密钥会使旧令牌失效。
+
+## 知识库与成员权限
+
+已登录用户可创建知识库，并自动成为该库管理员。`GET /knowledge-bases` 只返回当前用户加入的库；`GET /knowledge-bases/{kb_id}` 要求成员资格。管理员可通过 `GET /knowledge-bases/{kb_id}/members` 查看成员，使用 `PUT /knowledge-bases/{kb_id}/members/{user_id}` 配合 `{"role":"member"}` 或 `{"role":"admin"}` 添加或调整已有用户，使用 `DELETE` 同路径移除成员。移除或降级最后一位管理员会返回 `409`。普通成员只能读取当前已实现的知识库详情；文档上传、删除和问答尚无接口，未来须调用统一的 `require_kb_admin` 或 `require_kb_member` 守卫。
+
+在上面的登录示例取得 `$session` 后，可创建并查看知识库：
+
+```powershell
+$headers = @{ Authorization = "Bearer $($session.access_token)" }
+$kb = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/knowledge-bases -Headers $headers -ContentType application/json -Body '{"name":"A"}'
+Invoke-RestMethod -Uri http://127.0.0.1:8000/knowledge-bases -Headers $headers
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)" -Headers $headers
+```
+
+集成测试以三个临时用户和两个独立知识库验证成员隔离。服务端只从已验证的 JWT 取得操作人身份，成员变更提交后，下次请求重新查询数据库权限。
 
 ## 数据库结构
 

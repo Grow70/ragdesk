@@ -3,18 +3,15 @@
 from typing import Annotated
 from uuid import UUID
 
-import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import get_current_user, get_session, unauthorized
 from app.models import User
-from app.services.auth import authenticate_user, create_access_token, verified_user_id
+from app.services.auth import authenticate_user, create_access_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-_bearer = HTTPBearer(auto_error=False)
-_AUTH_ERROR = "Invalid authentication credentials"
 
 
 class LoginRequest(BaseModel):
@@ -36,28 +33,15 @@ class CurrentUserResponse(BaseModel):
     request_id: str
 
 
-def _session(request: Request):
-    with Session(request.app.state.engine) as session:
-        yield session
-
-
-def _unauthorized() -> HTTPException:
-    return HTTPException(
-        status_code=401,
-        detail=_AUTH_ERROR,
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-
 @router.post("/session", response_model=LoginResponse)
 def login(
     payload: LoginRequest,
     request: Request,
-    session: Annotated[Session, Depends(_session)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> LoginResponse:
     user = authenticate_user(session, payload.login_name, payload.password)
     if user is None:
-        raise _unauthorized()
+        raise unauthorized()
     settings = request.app.state.settings
     ttl_minutes = settings.access_token_ttl_minutes
     return LoginResponse(
@@ -72,21 +56,8 @@ def login(
 @router.get("/me", response_model=CurrentUserResponse)
 def current_user(
     request: Request,
-    session: Annotated[Session, Depends(_session)],
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> CurrentUserResponse:
-    if credentials is None:
-        raise _unauthorized()
-    try:
-        user_id = verified_user_id(
-            credentials.credentials,
-            request.app.state.settings.jwt_secret.get_secret_value(),
-        )
-    except jwt.InvalidTokenError as exc:
-        raise _unauthorized() from exc
-    user = session.get(User, user_id)
-    if user is None or user.login_name is None or user.password_hash is None:
-        raise _unauthorized()
     return CurrentUserResponse(
         user_id=user.id,
         login_name=user.login_name,
