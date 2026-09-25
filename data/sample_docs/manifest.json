@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "description": "纯虚构的演示数据；文件哈希按 UTF-8 文件原始字节计算。",
+  "knowledge_bases": [
+    {"key": "A", "label": "星桥演示集团"},
+    {"key": "B", "label": "海岚演示事业部"}
+  ],
+  "documents": [
+    {
+      "document_id": "A-EXP-001",
+      "kb_key": "A",
+      "path": "a/A-EXP-001.md",
+      "title": "A 库差旅报销规则",
+      "file_sha256": "4777a93b247400c2ab5eb70bd7f0129728da9bdb8889371be3ae5129caac260f"
+    },
+    {
+      "document_id": "A-TRV-002",
+      "kb_key": "A",
+      "path": "a/A-TRV-002.md",
+      "title": "A 库差旅出行审批",
+      "file_sha256": "253b1260b35a5dafa705064e2014eb8a3a631562f591494625e5ae2998c8a6f9"
+    },
+    {
+      "document_id": "A-LEV-003",
+      "kb_key": "A",
+      "path": "a/A-LEV-003.md",
+      "title": "A 库休假与调休说明",
+      "file_sha256": "d8eaabeee8bfb8b6ed4350459c9ba353b64c8f1c5dc4e2480c4a74adcf582ac5"
+    },
+    {
+      "document_id": "A-PRD-004",
+      "kb_key": "A",
+      "path": "a/A-PRD-004.md",
+      "title": "NX-210 产品能力说明",
+      "file_sha256": "2a04684ba0ceff753aad8904f7ee861ae4d1cf9509456825dcadc18ee3906ece"
+    },
+    {
+      "document_id": "A-API-005",
+      "kb_key": "A",
+      "path": "a/A-API-005.txt",
+      "title": "A 库 NX-210 接口错误码",
+      "file_sha256": "6b824555c07e21ea1269b7ad82bcb84d0b9fb7fe32755010e1fdc69d2a39e9a3"
+    },
+    {
+      "document_id": "A-OPS-006",
+      "kb_key": "A",
+      "path": "a/A-OPS-006.md",
+      "title": "A 库运维事件流程",
+      "file_sha256": "977d92f5becf68b7ed58c67fe2abb93e92f95e435ab9720efb15a32e9ffb94a3"
+    },
+    {
+      "document_id": "B-EXP-001",
+      "kb_key": "B",
+      "path": "b/B-EXP-001.md",
+      "title": "B 库差旅报销规则",
+      "file_sha256": "65fdfe968f8c0a33e691bcb320de1364a41e1462a7b96d31bcb1e01f8da2d321"
+    },
+    {
+      "document_id": "B-OPS-002",
+      "kb_key": "B",
+      "path": "b/B-OPS-002.txt",
+      "title": "B 库运维事件流程",
+      "file_sha256": "2d86cad8a1c5c6539f7121e6af4d28ea78f17c7d335448c15931c9a1f3435706"
+    }
+  ]
+}
