@@ -1,6 +1,7 @@
 """Environment-only application configuration."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,6 +15,7 @@ class Settings(BaseSettings):
     chat_model: str = "gpt-4.1-mini-2025-04-14"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = Field(default=1536, ge=1, le=1536)
+    retrieval_embedding_backend: Literal["openai", "fake"] = "openai"
     model_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     model_read_timeout_seconds: float = Field(default=30.0, gt=0)
     model_max_attempts: int = Field(default=3, ge=1, le=3)

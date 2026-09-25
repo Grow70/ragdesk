@@ -87,7 +87,7 @@ flowchart TD
 | --- | --- | --- |
 | `ParsedSection` | `section_index: int`, `text: str`, `source_locator: str`, `block_type: "paragraph" \| "list" \| "code"` | `document_id: str?`, `page_number: int?`, `heading_path: list[str]?`, `start_line: int?`, `end_line: int?`；必须至少有页码、标题路径或行号之一。解析器只接收受控文件路径，可选 `document_id` 由调用方传入，独立预览时为 `null`；`section_index` 从 0 开始。Markdown/TXT 使用原文行号范围，`page_number` 为 `null`；PDF 使用从 1 开始的物理页码作为 `page_number` 和 `source_locator`，行号为 `null`，每个有文字的页面至少独立成一个 section。 |
 | `Chunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `ordinal: int`, `text: str` | 同上四个定位字段；继承原文位置，不能跨文档或构建拼接。数据库 `chunks` 表通过 `build_id` 关联文档和知识库，读取时派生 `document_id`、`knowledge_base_id`；向量列在模型适配步骤增加，不暴露给 API。 |
-| `RetrievedChunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `text: str`, `score: float` | 同上定位字段；`score` 是所用检索器的排序值，不承诺跨算法可比。仅可来自当前库的有效 build。 |
+| `RetrievedChunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `document_name: str`, `text: str`, `distance: float`, `rank: int` | `page_number: int?`, `heading_path: list[str]?`；第 14 步的 `distance` 是 pgvector cosine distance，越小越相似，不是答案正确概率；`rank` 从 1 开始。仅可来自当前库的有效 build。后续混合检索如需不同分数，须新增明确命名的字段并修订契约。 |
 | `Citation` | `citation_id: str`, `document_id: str`, `build_id: str`, `chunk_id: str`, `document_name: str`, `snippet: str`, `source_path: str` | 同上定位字段；`source_path` 指向需重新授权的来源接口，不能是公开文件地址。 |
 | `AnswerResult` | `status: "answered" \| "insufficient_evidence" \| "needs_clarification"`, `answer: str`, `citations: list[Citation]`, `request_id: str` | `answered` 必须有非空、经校验的引用；其余两种状态的 `citations` 为空，`answer` 分别写明资料不足或需要补充什么。 |
 
@@ -146,9 +146,30 @@ flowchart TD
 | 成员授权 | `GET /knowledge-bases/{kb_id}/members`, `PUT /knowledge-bases/{kb_id}/members/{user_id}`, `DELETE /knowledge-bases/{kb_id}/members/{user_id}` | 管理员 | 查看、授予或调整该库成员角色，或移除成员；`PUT` 请求 `{ "role": "member" | "admin" }`；不允许移除或降级最后一名管理员。未知库或非成员统一 `404`。 |
 | 文档 | `POST /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents/{document_id}`, `GET /knowledge-bases/{kb_id}/documents/{document_id}/raw`, `DELETE /knowledge-bases/{kb_id}/documents/{document_id}` | 上传、删除限管理员；读取需成员 | 上传、分页列表与状态、详情、受保护的原文件下载；重复上传返回已有 ID。删除留待后续步骤。 |
 | 来源 | `GET /knowledge-bases/{kb_id}/sources/{document_id}/{build_id}/{chunk_id}` | 成员或管理员 | 返回授权片段及位置；删除或无权时不返回内容。 |
-| 检索 | `POST /knowledge-bases/{kb_id}/search` | 成员或管理员 | 请求 `{ "query": "..." }`，返回当前库有效构建的片段和定位。 |
+| 检索 | `POST /knowledge-bases/{kb_id}/search` | 成员或管理员 | 第 14 步为调试接口；请求 `{ "query": "...", "top_k": 5 }`，`top_k` 范围 1～20；响应含 `distance_metric: "cosine_distance"`、`items: list[RetrievedChunk]` 和 `request_id`。先检查当前成员资格，SQL 同时限制单库、未删除文档、ready 的当前 active build、兼容的完整模型配置 ID 与非空向量；无候选返回空数组。按距离升序做精确检索，不设置近似向量索引。查询 Embedding 默认用 OpenAI；只有显式设置 `RETRIEVAL_EMBEDDING_BACKEND=fake` 才查询 fake 索引，无密钥不回退 fake。模型或数据库故障返回错误响应。 |
 | 问答 | `POST /knowledge-bases/{kb_id}/answers` | 成员或管理员 | 请求 `{ "question": "..." }`，返回 `AnswerResult`。 |
 | 任务查询 | `GET /knowledge-bases/{kb_id}/tasks/{task_id}` | 管理员 | F2 启用；返回任务、文档、构建状态与安全的失败原因。基础阶段可保留接口契约，未启用时不假装后台任务存在。 |
+
+第 14 步调试检索请求示例：`POST /knowledge-bases/{kb_id}/search`，请求体 `{ "query": "差旅报销期限", "top_k": 5 }`。响应形状如下；UUID 和距离仅为示意值，不代表真实检索运行结果：
+
+```json
+{
+  "distance_metric": "cosine_distance",
+  "items": [{
+    "chunk_id": "00000000-0000-0000-0000-000000000003",
+    "document_id": "00000000-0000-0000-0000-000000000001",
+    "build_id": "00000000-0000-0000-0000-000000000002",
+    "knowledge_base_id": "00000000-0000-0000-0000-000000000004",
+    "document_name": "演示差旅制度.md",
+    "text": "演示数据：差旅报销须在返程后 10 个自然日内提交票据。",
+    "page_number": null,
+    "heading_path": ["差旅报销"],
+    "distance": 0.2,
+    "rank": 1
+  }],
+  "request_id": "req_example"
+}
+```
 
 上传使用 `multipart/form-data`，文件字段名 `file`。第 8 步接受 `.md`、`.txt`、`.pdf` 且单文件最多 10 MiB；检查文本 UTF-8 与常见二进制伪装，PDF 检查基础头尾结构，但不解析、不能由此证明 PDF 含可提取文本。扫描件将在解析步骤明确拒绝。原文件只存私有目录，以服务端生成的键定位；下载接口每次检查成员权限，不公开静态映射。第 8 步上传成功返回 `201`、`document_id`、`status: uploaded`、`request_id`，重复上传返回 `200` 和已有 ID；列表用 `limit`（默认 20、最多 100）及 `offset`（默认 0）分页，返回 `items`、`total`、`limit`、`offset`、`request_id`。后续入库步骤成功后才会返回 `build_id` 与可检索状态。F2 引入后台入库后，可返回 `202`、`task_id`、初始状态和查询路径。调用者始终以文档状态而非上传 HTTP 成功与否判断是否可检索。
 

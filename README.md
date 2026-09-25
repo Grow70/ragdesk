@@ -145,6 +145,28 @@ uv run --locked python -m app.ingest_document --document-id $uploaded.document_i
 uv run --locked pytest -q tests/test_ingest.py
 ```
 
+## 向量检索调试
+
+第 14 步提供 `POST /knowledge-bases/{kb_id}/search`，只返回片段，不生成回答。请求含非空 `query` 和可选 `top_k`（默认 5，范围 1～20）。响应的 `distance_metric` 为 `cosine_distance`；`distance` 越小，向量越相似，`rank` 从 1 开始。距离不表示答案正确概率。检索仅查看当前库未删除文档的 ready 有效构建，并要求查询与文档的嵌入模型配置标识一致。空库返回空 `items`。未授权库与不存在的库均返回 `404`；模型故障返回错误响应。
+
+服务默认使用 OpenAI 查询向量，需要进程环境中的 `OPENAI_API_KEY`。若前一步显式以 `--embedding-backend fake` 入库，在**启动 API 服务前**设 `$env:RETRIEVAL_EMBEDDING_BACKEND = "fake"`，只查询 fake 配置的索引；这是离线流程检查，fake 向量不具备语义效果。请勿将 fake 的距离当作真实语义检索实验。
+
+在 PowerShell 中，取得上文的 `$session`、`$kb`，且对应文档已完成入库后运行：
+
+```powershell
+$headers = @{ Authorization = "Bearer $($session.access_token)" }
+$body = @{ query = "报销期限是多少？"; top_k = 5 } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)/search" -Headers $headers -ContentType application/json -Body $body
+```
+
+离线数据库检查使用随机命名并在完成后删除的测试库：
+
+```powershell
+uv run --locked pytest -q tests/test_retrieval.py -k "not real_semantic"
+```
+
+真实语义检查是**独立的显式操作**：在 `backend` 目录设置 `TEST_POSTGRES_ADMIN_URL`、`OPENAI_API_KEY` 及 `$env:RUN_REAL_RETRIEVAL = "1"`，运行 `uv run --locked pytest -q -s tests/test_retrieval.py -k real_semantic`。它将两段短文本和一个问题发送到 OpenAI Embeddings API，预计两次请求（此检查限制每次最多一次尝试），会产生少量费用。测试打印两条距离并检查报销文档排在运维文档前；结果需单独记录，不能用 fake 测试结果代替。
+
 ## 数据库结构
 
 应用启动不会创建或修改表。在 `backend` 目录中，确认 `DATABASE_URL` 指向预期的**新建开发数据库**后，显式执行迁移：
