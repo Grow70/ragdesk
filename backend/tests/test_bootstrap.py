@@ -12,9 +12,7 @@ def configured_env(monkeypatch):
         "DATABASE_URL",
         "postgresql+psycopg://ragdesk:db-secret-sentinel@localhost/ragdesk",
     )
-    monkeypatch.setenv("MODEL_PROVIDER", "example")
-    monkeypatch.setenv("MODEL_NAME", "example-model")
-    monkeypatch.setenv("MODEL_API_KEY", "model-secret-sentinel")
+    monkeypatch.setenv("OPENAI_API_KEY", "model-secret-sentinel")
     monkeypatch.setenv("JWT_SECRET", "jwt-secret-sentinel-with-at-least-32-bytes")
 
 
@@ -27,11 +25,9 @@ def test_health_returns_request_id(configured_env):
 
 
 def test_missing_required_configuration_is_explicit(monkeypatch):
-    for name in ("DATABASE_URL", "JWT_SECRET", "MODEL_PROVIDER", "MODEL_NAME"):
+    for name in ("DATABASE_URL", "JWT_SECRET"):
         monkeypatch.delenv(name, raising=False)
-    with pytest.raises(
-        RuntimeError, match="DATABASE_URL.*JWT_SECRET.*MODEL_NAME.*MODEL_PROVIDER"
-    ):
+    with pytest.raises(RuntimeError, match="DATABASE_URL.*JWT_SECRET"):
         load_settings()
 
 

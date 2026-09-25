@@ -1,6 +1,6 @@
 # Ragdesk
 
-面向模拟企业资料的知识库问答系统。当前完成后端骨架、核心数据库表、演示用户身份认证、知识库与成员权限，以及原文件上传和受保护读取。支持 `/health/live`、`/auth/session`、`/auth/me`、`/knowledge-bases` 和文档接口；尚无文件解析、检索、问答或模型调用。
+面向模拟企业资料的知识库问答系统。当前完成后端骨架、核心数据库表、演示用户身份认证、知识库与成员权限、原文件上传与受保护读取，以及解析器、切块器和独立的模型适配层。支持 `/health/live`、`/auth/session`、`/auth/me`、`/knowledge-bases` 和文档接口；尚未将模型接入完整 RAG 流程。
 
 需求和后续实现契约分别见 [docs/requirements.md](docs/requirements.md) 与 [docs/architecture.md](docs/architecture.md)。
 
@@ -14,8 +14,6 @@ docker compose up -d db
 docker compose ps db
 
 $env:DATABASE_URL = "postgresql+psycopg://ragdesk:$($env:POSTGRES_PASSWORD)@127.0.0.1:5432/ragdesk"
-$env:MODEL_PROVIDER = "example"
-$env:MODEL_NAME = "not-used-yet"
 $secretBytes = New-Object byte[] 32
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $rng.GetBytes($secretBytes)
@@ -38,7 +36,7 @@ $session = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/auth/sessio
 Invoke-RestMethod -Uri http://127.0.0.1:8000/auth/me -Headers @{ Authorization = "Bearer $($session.access_token)" }
 ```
 
-健康接口应返回 `status: ok` 和非空 `request_id`，它只检查 Web 进程。登录成功返回有过期时间的 Bearer JWT；`/auth/me` 返回令牌对应的用户身份。`DATABASE_URL`、`MODEL_PROVIDER`、`MODEL_NAME`、`JWT_SECRET` 必需；`JWT_SECRET` 至少 32 字节，只从环境变量读取。`MODEL_API_KEY` 当前可不设置。配置类不自动加载 `.env`；[backend/.env.example](backend/.env.example) 不包含真实密钥。若数据库密码含 URL 特殊字符，构造 `DATABASE_URL` 时需先做 URL 编码。演示配置和密码不作为生产默认配置；重新生成签名密钥会使旧令牌失效。
+健康接口应返回 `status: ok` 和非空 `request_id`，它只检查 Web 进程。登录成功返回有过期时间的 Bearer JWT；`/auth/me` 返回令牌对应的用户身份。启动需要 `DATABASE_URL` 与 `JWT_SECRET`；`JWT_SECRET` 至少 32 字节，只从环境变量读取。仅显式创建真实模型客户端时才需要 `OPENAI_API_KEY`。聊天与嵌入模型分别配置，详见[模型配置](docs/model_config.md)。配置类不自动加载 `.env`；[backend/.env.example](backend/.env.example) 不包含真实密钥。若数据库密码含 URL 特殊字符，构造 `DATABASE_URL` 时需先做 URL 编码。演示配置和密码不作为生产默认配置；重新生成签名密钥会使旧令牌失效。
 
 ## 知识库与成员权限
 
@@ -108,6 +106,24 @@ uv run --locked pytest -q tests/test_chunker.py
 ```
 
 重叠能让跨切分点的事实在相邻块中保有上下文，提高这类问题的召回机会；也会增加存储、嵌入成本和相近检索结果。统计中的 `duplicate_chunks` 只表示正文完全相同，`short_chunks` 指短于块上限一半，不能据此推断真实检索效果。
+
+## 模型适配层（尚未接入 RAG）
+
+第 12 步提供 OpenAI 聊天和向量客户端，以及需由测试显式创建的离线 fake。真实客户端缺少 `OPENAI_API_KEY` 会报错，真实请求失败不会回退 fake。默认模型分别是 `gpt-4.1-mini-2025-04-14` 和 `text-embedding-3-small`，向量配置为 1536 维。模型约束和来源见[模型配置](docs/model_config.md)。当前**真实接口未验证**。
+
+在 `backend` 目录运行离线验收，无需密钥或数据库：
+
+```powershell
+uv run --locked pytest -q tests/test_llm.py
+uv run --locked ruff check app/llm app/config.py tests/test_llm.py
+```
+
+若将来提供自己的 API 密钥，可在独立会话显式运行一次真实冒烟检查；它会产生一条嵌入和一条聊天请求，按用量计费，不用于衡量 RAG 效果：
+
+```powershell
+$env:OPENAI_API_KEY = "<your-key-in-process-environment>"
+uv run --locked python -c "import os; from app.llm.openai import OpenAIEmbeddingClient, OpenAIChatClient; e = OpenAIEmbeddingClient(api_key=os.environ['OPENAI_API_KEY']); c = OpenAIChatClient(api_key=os.environ['OPENAI_API_KEY']); print('embedding:', len(e.embed_query('演示资料').vectors[0])); print('chat:', c.generate([{'role':'user','content':'请回答：收到'}], {'type':'object','properties':{'answer':{'type':'string'}},'required':['answer'],'additionalProperties':False}).content); e.close(); c.close()"
+```
 
 ## 数据库结构
 

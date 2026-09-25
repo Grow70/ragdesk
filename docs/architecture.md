@@ -8,7 +8,7 @@
 - API：FastAPI，负责 HTTP 参数校验、可信用户识别、授权入口、响应与错误映射、`request_id`。路由不直接解析文件、访问模型或拼接检索 SQL。
 - 业务与持久化：Python services 编排流程；repositories 使用 SQLAlchemy 访问 PostgreSQL；Alembic 管理数据库模式迁移。
 - 检索：PostgreSQL 存储文档、构建与片段；模型适配步骤确定嵌入维度后，再通过迁移加入 pgvector 向量列。基础范围将采用单库向量检索，混合检索留给 F1。
-- 模型：通过 `llm` 适配层调用可配置的外部模型 API，包括嵌入和生成；密钥只从环境变量读取。供应商、模型及版本在实现相应功能时确定。
+- 模型：第 12 步固定首个供应商为 OpenAI；`llm` 适配层分别配置嵌入和生成模型，密钥只从环境变量读取。模型标识、维度和输入约定见 [模型配置](model_config.md)。
 - Agent：后续 F3 再使用 LangGraph 编排受限工具调用；基础问答为固定 RAG 流程，不启用 Agent。
 - 文件：原始上传文件放在非公开的受控存储中，数据库只保存元数据及内部存储定位；不得提交到 Git。具体本地存储或对象存储方案待实现任务确定。
 
@@ -99,9 +99,11 @@ flowchart TD
 
 第 11 步的纯函数 `chunk_sections(sections, config)` 返回 `ChunkingResult(chunks: list[ChunkDraft], stats: ChunkStats)`；`ChunkConfig` 默认 `chunk_size=600`、`overlap=80`，单位是 Python 字符串的 Unicode 码点数，不是模型 token，要求整数且 `chunk_size > 0`、`0 <= overlap < chunk_size`。草稿含文档 ID（可空）、从 0 开始的 `ordinal`、`text`、内容 SHA-256、标题路径、物理页码、起止行号及 `source_spans`。每个 `ChunkSourceSpan` 保存原 `section_index`、`source_locator`、在该 section 文本中的 `[char_start, char_end)` 字符范围及可用的精确行号/页码；草稿不生成 `chunk_id`、`build_id` 或向量。按同一文档、标题路径和页码组合短段落；代码块独立；拆分优先段落、句子，再按字符硬切。PDF 不跨物理页，overlap 只在同一组合内拆分长文本时使用，短文本只产一个草稿。`ChunkStats` 至少记录块数、输入/输出字符数、最短/最长/平均长度、短块数、超限块数、完全重复块数；短块阈值为 `chunk_size` 的一半。完全重复按块正文的 SHA-256 统计，不代表语义重复。后续持久化时再为草稿分配数据库 ID 并核对构建归属。
 
+第 12 步约定 `EmbeddingClient.embed_documents(texts)` 与 `embed_query(text)` 均返回 `EmbeddingResult(vectors, usage, elapsed_ms, call_count)`；查询结果只有一个向量。`ChatClient.generate(messages, response_schema)` 返回 `ChatResult(content, usage, elapsed_ms, call_count)`，其中 `content` 是按 JSON Schema 校验的对象。`usage` 分别记录输入、输出和总 token；`call_count` 包含本次重试尝试，客户端累计调用次数另行可读。参数或响应错误、鉴权失败和向量校验失败不得重试或变成资料不足；仅临时网络、超时、429 和指定 5xx 做最多三次尝试。fake 客户端需由测试显式构造，真实客户端缺密钥或失败时不能回退 fake。本步只实现适配层，不连接检索、问答或构建发布。
+
 ## 6. 数据模型、状态与发布规则
 
-第 4 步的核心表为 `users`、`knowledge_bases`、`kb_members(user_id, kb_id, role)`、`documents(id, kb_id, file_name, file_sha256, deleted_at, active_build_id)`、`document_builds(id, document_id, status, parser_config, chunking_config, model_config_id, error_code, error_message, created_at, finished_at)` 和 `chunks(id, build_id, ordinal, body, content_sha256, page_number, heading_path, start_line, end_line)`；文档的私有文件存储定位也保存在 `documents.storage_key`。`chunks` 的文档及知识库归属由 build 和 document 外键链确定，避免重复列失配。`kb_members` 对用户与知识库组合唯一；未删除文档的同库文件摘要唯一；`active_build_id` 必须引用本文件的构建。向量列及维度待模型适配步骤确定后再通过迁移加入；F2 时增加 `tasks`。
+第 4 步的核心表为 `users`、`knowledge_bases`、`kb_members(user_id, kb_id, role)`、`documents(id, kb_id, file_name, file_sha256, deleted_at, active_build_id)`、`document_builds(id, document_id, status, parser_config, chunking_config, model_config_id, error_code, error_message, created_at, finished_at)` 和 `chunks(id, build_id, ordinal, body, content_sha256, page_number, heading_path, start_line, end_line)`；文档的私有文件存储定位也保存在 `documents.storage_key`。`chunks` 的文档及知识库归属由 build 和 document 外键链确定，避免重复列失配。`kb_members` 对用户与知识库组合唯一；未删除文档的同库文件摘要唯一；`active_build_id` 必须引用本文件的构建。第 12 步已将首版向量配置定为 1536 维，但本步不加数据库向量列；后续索引步骤再通过迁移加入并检查模型配置标识。F2 时增加 `tasks`。
 
 核心表采用 Alembic 显式迁移，应用启动不调用 `create_all`。`active_build_id` 使用 `(documents.id, active_build_id)` 到 `(document_builds.document_id, id)` 的组合外键，防止指向其他文档的构建；可检索块查询还需检查当前库、未删除和 build 状态为 `ready`。第 5 步为 `users` 增加可空的 `login_name` 与 `password_hash`，使第 4 步已有的无登录资料用户仍可保留；仅演示初始化命令创建带 Argon2id 哈希的可登录用户。表定义与迁移用法参考 [SQLAlchemy 声明式映射](https://docs.sqlalchemy.org/en/20/orm/declarative_tables.html)、[PostgreSQL 方言](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html) 和 [Alembic 迁移教程](https://alembic.sqlalchemy.org/en/latest/tutorial.html)。
 

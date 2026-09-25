@@ -10,9 +10,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, extra="ignore", frozen=True)
 
     database_url: SecretStr
-    model_provider: str
-    model_name: str
-    model_api_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
+    chat_model: str = "gpt-4.1-mini-2025-04-14"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = Field(default=1536, ge=1, le=1536)
+    model_connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    model_read_timeout_seconds: float = Field(default=30.0, gt=0)
+    model_max_attempts: int = Field(default=3, ge=1, le=3)
     jwt_secret: SecretStr
     access_token_ttl_minutes: int = Field(default=30, ge=1, le=1440)
     upload_storage_dir: Path = Path(__file__).resolve().parents[1] / "var" / "uploads"
@@ -31,7 +35,7 @@ class Settings(BaseSettings):
             raise ValueError("must have at least 32 bytes")
         return value
 
-    @field_validator("model_provider", "model_name")
+    @field_validator("chat_model", "embedding_model")
     @classmethod
     def model_setting_is_not_blank(cls, value: str) -> str:
         if not value.strip():
