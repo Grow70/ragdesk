@@ -69,3 +69,10 @@
 - 验证结果：核对 [FastAPI 上传文件](https://fastapi.tiangolo.com/tutorial/request-files/)、[Starlette 文件响应](https://www.starlette.io/responses/)、[SQLAlchemy 会话回滚](https://docs.sqlalchemy.org/en/20/orm/session_basics.html) 及 [python-multipart 发行信息](https://pypi.org/project/python-multipart/)；在专用临时 PostgreSQL 容器中运行全量 `pytest -q`，`10 passed`，另有 1 个既有 TestClient 弃用警告。新增的 3 个集成测试检查三种格式、10 MiB 边界与超限、空文件、类型伪装、穿越文件名、同库重复及跨库独立、分页与原文件授权、成员被移除后的失效、数据库提交失败后暂存和最终文件均清理。`ruff check .`、`ruff format --check .`、`uv lock --check`、`git diff --check` 通过；测试随机库均已删除。
 - 遗留问题：PDF 只验证基本头尾结构，本步不解析，无法证明含可提取文本；扫描 PDF 将在解析步骤明确标记不支持。上传解析器可能在应用读取前将 multipart 文件暂存，实际部署还需在入口层配置请求体大小限制。文档保持 `uploaded` 且不可检索；删除、构建及模型调用未实现。数据库集成测试未提供 `TEST_POSTGRES_ADMIN_URL` 时会明确跳过。
 - 下一步入口：等待新的编号任务；未来解析和构建应沿用文档私有存储键、权限守卫与 `active_build_id` 发布契约，先更新契约再修改实现。
+
+## 第 9 步：Markdown/TXT 解析器
+
+- 已完成：先更新 `ParsedSection` 架构契约，明确独立解析时 `document_id` 可空、`source_locator` 为原文行号、`section_index` 从 0 开始，并增加块类型。新增只读本地文件的 Markdown/TXT 解析器与 JSON 预览命令；支持 UTF-8 及带 BOM 的 UTF-8，保留 Markdown 标题层级、列表标记和代码围栏，去除段落外无意义空白；缺文件、错误编码、空正文、未闭合代码围栏、读取及内部解析异常有稳定错误码。未切块、写库或调用 Embedding，未新增依赖。
+- 验证结果：核对 Python 官方 [UTF-8 BOM 编解码](https://docs.python.org/3.12/library/codecs.html)、[pathlib 文件读取](https://docs.python.org/3.12/library/pathlib.html)、[JSON 输出](https://docs.python.org/3.12/library/json.html) 文档。固定的 A 库 Markdown/TXT 模拟资料和专门构造的 Markdown 样例通过 12 项解析测试：标题路径、原文行号和段落顺序正确，`680 元`、`15 个自然日`、`NX-210-P`、HTTP 错误码与金额不丢失；BOM、代码不执行、CLI 输出和各类错误码均验证。项目全量 `pytest -q` 为 `15 passed, 7 skipped, 1 warning`：7 项数据库集成检查因未设置 `TEST_POSTGRES_ADMIN_URL` 而跳过，1 项为既有 TestClient 弃用警告。`ruff check .`、`ruff format --check .`、`uv lock --check`、`git diff --check` 通过；首次 Ruff 检查因新文件长行失败，格式化后重跑通过。
+- 遗留问题：这是面向演示语料的轻量 Markdown 解析，复杂的嵌套块、内联语法和 HTML 不做完整 CommonMark 语法分析；TXT 不推断标题。PDF 仍未解析；本步不产生检索结果或 RAG 效果结论。
+- 下一步入口：等待新的编号任务；后续切块或索引构建可消费 `ParsedSection` 的原文行号与标题路径，必要的契约变化应先更新架构文档。

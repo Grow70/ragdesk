@@ -85,13 +85,15 @@ flowchart TD
 
 | 对象 | 必需字段与类型 | 可空字段与约束 |
 | --- | --- | --- |
-| `ParsedSection` | `document_id: str`, `section_index: int`, `text: str` | `page_number: int?`, `heading_path: list[str]?`, `start_line: int?`, `end_line: int?`；必须至少有页码、标题路径或行号之一。 |
+| `ParsedSection` | `section_index: int`, `text: str`, `source_locator: str`, `block_type: "paragraph" \| "list" \| "code"` | `document_id: str?`, `page_number: int?`, `heading_path: list[str]?`, `start_line: int?`, `end_line: int?`；必须至少有页码、标题路径或行号之一。第 9 步解析器只接收受控文件路径，可选 `document_id` 由调用方传入，独立预览时为 `null`；Markdown/TXT 的 `source_locator` 为稳定的原文行号范围，`section_index` 从 0 开始，`page_number` 为 `null`。 |
 | `Chunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `ordinal: int`, `text: str` | 同上四个定位字段；继承原文位置，不能跨文档或构建拼接。数据库 `chunks` 表通过 `build_id` 关联文档和知识库，读取时派生 `document_id`、`knowledge_base_id`；向量列在模型适配步骤增加，不暴露给 API。 |
 | `RetrievedChunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `text: str`, `score: float` | 同上定位字段；`score` 是所用检索器的排序值，不承诺跨算法可比。仅可来自当前库的有效 build。 |
 | `Citation` | `citation_id: str`, `document_id: str`, `build_id: str`, `chunk_id: str`, `document_name: str`, `snippet: str`, `source_path: str` | 同上定位字段；`source_path` 指向需重新授权的来源接口，不能是公开文件地址。 |
 | `AnswerResult` | `status: "answered" \| "insufficient_evidence" \| "needs_clarification"`, `answer: str`, `citations: list[Citation]`, `request_id: str` | `answered` 必须有非空、经校验的引用；其余两种状态的 `citations` 为空，`answer` 分别写明资料不足或需要补充什么。 |
 
 文档定位的最小稳定组合为 `document_id + build_id + chunk_id + 页码或标题路径/行号`。引用带 `build_id`，因此重建索引后不会意外指向另一版片段；来源接口每次重新检查文档未删除、用户有权访问，且只返回该引用对应的资料。若旧构建已清理，返回来源不可用错误，不能映射到当前构建的同序号片段。
+
+第 9 步仅解析 UTF-8 或带 UTF-8 BOM 的 Markdown/TXT。解析输出保留标题层级、列表标记、代码围栏及原文行号；标题本身作为 `heading_path`，不单独成为正文片段。普通块清理首尾空白与空行，代码围栏内部保持原样。解析器不执行代码、不请求链接；缺文件、错误编码、空正文和未闭合代码围栏返回可识别的解析错误。此步不写入 `chunks` 或调用嵌入模型。
 
 ## 6. 数据模型、状态与发布规则
 

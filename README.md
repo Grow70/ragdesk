@@ -72,6 +72,19 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)/document
 Invoke-WebRequest -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)/documents/$($uploaded.document_id)/raw" -Headers $headers -OutFile "$env:TEMP\ragdesk-download.md"
 ```
 
+## Markdown/TXT 解析预览
+
+第 9 步的解析器接收受控本地 `.md` 或 `.txt` 路径，输出按原文顺序排列的 `ParsedSection` JSON。`source_locator` 与 `start_line`、`end_line` 指向原文行号；Markdown 保留标题路径、列表标记和代码围栏，TXT 的标题路径为空。支持 UTF-8 和带 UTF-8 BOM 的文件；错误编码、空正文、缺文件、未闭合代码围栏等会在标准错误输出稳定错误码。预览不写数据库、不执行代码或访问链接，也不切块。
+
+在仓库根目录运行：
+
+```powershell
+Set-Location backend
+uv run --locked python -m app.parsers.cli ..\data\sample_docs\a\A-EXP-001.md
+```
+
+已有数据库文档 ID 时可追加 `--document-id <ID>`；独立预览时输出的 `document_id` 为 `null`。此命令不需要数据库或模型配置。
+
 ## 数据库结构
 
 应用启动不会创建或修改表。在 `backend` 目录中，确认 `DATABASE_URL` 指向预期的**新建开发数据库**后，显式执行迁移：
