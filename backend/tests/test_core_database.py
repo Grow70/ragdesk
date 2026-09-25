@@ -57,7 +57,7 @@ def test_core_migration_constraints_query_and_rollback(monkeypatch):
 
         command.upgrade(config, "head")
         assert CORE_TABLES <= set(inspect(engine).get_table_names())
-        assert "embedding" not in {
+        assert "embedding" in {
             column["name"] for column in inspect(engine).get_columns("chunks")
         }
         command.check(config)
@@ -172,6 +172,7 @@ def test_core_migration_constraints_query_and_rollback(monkeypatch):
                         body="active",
                         content_sha256="d" * 64,
                         page_number=1,
+                        embedding=[1.0] + [0.0] * 1535,
                     ),
                     Chunk(
                         build_id=inactive_build_id,
@@ -179,6 +180,7 @@ def test_core_migration_constraints_query_and_rollback(monkeypatch):
                         body="inactive",
                         content_sha256="e" * 64,
                         page_number=1,
+                        embedding=[1.0] + [0.0] * 1535,
                     ),
                     Chunk(
                         build_id=other_build_id,
@@ -186,6 +188,7 @@ def test_core_migration_constraints_query_and_rollback(monkeypatch):
                         body="other kb",
                         content_sha256="f" * 64,
                         page_number=1,
+                        embedding=[1.0] + [0.0] * 1535,
                     ),
                 ]
             )
@@ -212,11 +215,14 @@ def test_core_migration_constraints_query_and_rollback(monkeypatch):
             )
         with Session(engine) as session:
             assert [
-                item.body for item in session.scalars(searchable_chunks_stmt(kb_id))
+                item.body
+                for item in session.scalars(searchable_chunks_stmt(kb_id, "test-only"))
             ] == ["active"]
             assert [
                 item.body
-                for item in session.scalars(searchable_chunks_stmt(other_kb_id))
+                for item in session.scalars(
+                    searchable_chunks_stmt(other_kb_id, "test-only")
+                )
             ] == ["other kb"]
 
         with engine.begin() as connection:
@@ -226,7 +232,9 @@ def test_core_migration_constraints_query_and_rollback(monkeypatch):
                 .values(deleted_at=datetime.now(timezone.utc), active_build_id=None)
             )
         with Session(engine) as session:
-            assert list(session.scalars(searchable_chunks_stmt(kb_id))) == []
+            assert (
+                list(session.scalars(searchable_chunks_stmt(kb_id, "test-only"))) == []
+            )
 
         engine.dispose()
         command.downgrade(config, "base")

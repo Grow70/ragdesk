@@ -55,7 +55,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)" -Header
 
 ## 原文件上传与读取
 
-管理员可通过 `POST /knowledge-bases/{kb_id}/documents` 的 `file` 表单字段上传 `.md`、`.txt` 或 `.pdf`，单文件最多 10 MiB。服务端检查文本编码或 PDF 的基本头尾结构并计算 SHA-256；同一库中相同有效字节返回已有 `document_id`。新文件返回 `201`、`status: uploaded`；重复文件返回 `200`。`uploaded` 表示仅保存原文件，当前没有解析、构建或可检索内容；PDF 的基础检查也不能证明它含有可提取文本，扫描件将在后续解析步骤提示不支持。
+管理员可通过 `POST /knowledge-bases/{kb_id}/documents` 的 `file` 表单字段上传 `.md`、`.txt` 或 `.pdf`，单文件最多 10 MiB。服务端检查文本编码或 PDF 的基本头尾结构并计算 SHA-256；同一库中相同有效字节返回已有 `document_id`。新文件返回 `201`、`status: uploaded`；重复文件返回 `200`。`uploaded` 表示仅保存原文件，需显式运行下文命令行入库后才可供后续检索使用；PDF 的基础检查不能证明含有可提取文本，扫描页会在解析时报告不完整。
 
 成员可通过 `GET /knowledge-bases/{kb_id}/documents?limit=20&offset=0` 分页查看文档，通过 `GET /knowledge-bases/{kb_id}/documents/{document_id}` 查看详情，并从 `GET /knowledge-bases/{kb_id}/documents/{document_id}/raw` 下载原文件。所有读取都重新检查当前成员资格。私有文件默认写到 `backend/var/uploads`，可设置 `UPLOAD_STORAGE_DIR` 指向其他**不公开映射**的目录；原始文件和数据库文件不要提交到 Git。
 
@@ -123,6 +123,26 @@ uv run --locked ruff check app/llm app/config.py tests/test_llm.py
 ```powershell
 $env:OPENAI_API_KEY = "<your-key-in-process-environment>"
 uv run --locked python -c "import os; from app.llm.openai import OpenAIEmbeddingClient, OpenAIChatClient; e = OpenAIEmbeddingClient(api_key=os.environ['OPENAI_API_KEY']); c = OpenAIChatClient(api_key=os.environ['OPENAI_API_KEY']); print('embedding:', len(e.embed_query('演示资料').vectors[0])); print('chat:', c.generate([{'role':'user','content':'请回答：收到'}], {'type':'object','properties':{'answer':{'type':'string'}},'required':['answer'],'additionalProperties':False}).content); e.close(); c.close()"
+```
+
+## 单文档命令行入库
+
+第 13 步仅提供本地操作命令，处理**已上传**且未删除的文档；命令使用当前 `DATABASE_URL` 的数据库权限，须在可信的本地开发环境运行，不提供 HTTP 入库入口。先执行 `uv run --locked alembic upgrade head`，显式加入 `vector(1536)` 列及构建配置字段。命令从私有存储读取文件，解析、切块、分批嵌入并写候选构建；所有块齐全且与同库有效索引配置兼容后才发布。PDF 有无文字页警告时标为失败；失败构建不可检索，旧有效构建保持有效。
+
+在 `backend` 目录、已设置 `DATABASE_URL`、`JWT_SECRET` 且按上文取得 `$uploaded` 后，使用 PowerShell：
+
+```powershell
+uv run --locked alembic upgrade head
+$buildId = [guid]::NewGuid().ToString()
+uv run --locked python -m app.ingest_document --document-id $uploaded.document_id --build-id $buildId --embedding-backend fake
+```
+
+输出 JSON 包含 `build_id`、`status`、`chunk_count`、`model_config_id`、`reused` 和失败码。用同一个 `--build-id` 再执行会返回已有构建状态，不重复调用模型或写块；失败后重建需使用新的 ID。`--chunk-size`、`--overlap` 和 `--batch-size` 可调整。真实请求须**显式**改用 `--embedding-backend openai` 并在环境中提供 `OPENAI_API_KEY`；不自动切换 fake。fake 与 OpenAI 的配置 ID 不同，同一个知识库不允许同时发布两种有效配置。fake 结果只验证入库流程，不代表检索或 RAG 效果。
+
+数据库集成测试会自行创建并删除随机命名的测试库；按下文配置 `TEST_POSTGRES_ADMIN_URL` 后，可在 `backend` 目录运行：
+
+```powershell
+uv run --locked pytest -q tests/test_ingest.py
 ```
 
 ## 数据库结构

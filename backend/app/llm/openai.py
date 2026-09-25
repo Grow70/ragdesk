@@ -132,6 +132,7 @@ class OpenAIEmbeddingClient(_OpenAIClient):
             raise ValueError("embedding model and dimensions must be valid")
         self.model = model
         self.dimensions = dimensions
+        self.provider = "openai"
 
     def embed_documents(self, texts: list[str]) -> EmbeddingResult:
         if (

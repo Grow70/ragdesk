@@ -15,6 +15,8 @@ class FakeEmbeddingClient:
         if type(dimensions) is not int or dimensions <= 0:
             raise ValueError("dimensions must be a positive integer")
         self.dimensions = dimensions
+        self.provider = "fake"
+        self.model = "sha256-onehot-v1"
         self.call_count = 0
 
     def embed_documents(self, texts: list[str]) -> EmbeddingResult:

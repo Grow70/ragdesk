@@ -38,6 +38,9 @@ class ModelError(Exception):
 
 class EmbeddingClient(Protocol):
     call_count: int
+    provider: str
+    model: str
+    dimensions: int
 
     def embed_documents(self, texts: list[str]) -> EmbeddingResult: ...
 

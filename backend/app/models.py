@@ -3,6 +3,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
@@ -130,6 +131,14 @@ class DocumentBuild(Base):
             "status <> 'failed' OR error_code IS NOT NULL",
             name="ck_document_builds_failed_error",
         ),
+        CheckConstraint(
+            "embedding_dimensions IS NULL OR embedding_dimensions > 0",
+            name="ck_document_builds_embedding_dimensions",
+        ),
+        CheckConstraint(
+            "expected_chunk_count IS NULL OR expected_chunk_count > 0",
+            name="ck_document_builds_expected_chunks",
+        ),
         Index("ix_document_builds_document_created", "document_id", "created_at"),
     )
 
@@ -143,6 +152,11 @@ class DocumentBuild(Base):
     parser_config: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     chunking_config: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     model_config_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    embedding_provider: Mapped[str | None] = mapped_column(String(32))
+    embedding_model: Mapped[str | None] = mapped_column(String(100))
+    embedding_dimensions: Mapped[int | None] = mapped_column(Integer)
+    config_version: Mapped[str | None] = mapped_column(String(50))
+    expected_chunk_count: Mapped[int | None] = mapped_column(Integer)
     error_code: Mapped[str | None] = mapped_column(String(100))
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
@@ -191,3 +205,5 @@ class Chunk(Base):
     heading_path: Mapped[list[str] | None] = mapped_column(JSONB)
     start_line: Mapped[int | None] = mapped_column(Integer)
     end_line: Mapped[int | None] = mapped_column(Integer)
+    source_spans: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
+    embedding: Mapped[list[float] | None] = mapped_column(VECTOR(1536))
