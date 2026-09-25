@@ -21,7 +21,11 @@ def configure_logging() -> None:
 
 
 def error_response(
-    request: Request, status: int, code: str, message: str
+    request: Request,
+    status: int,
+    code: str,
+    message: str,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=status,
@@ -29,6 +33,7 @@ def error_response(
             "error": {"code": code, "message": message},
             "request_id": request.state.request_id,
         },
+        headers=headers,
     )
 
 
@@ -36,7 +41,9 @@ def install_http_behavior(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         message = exc.detail if isinstance(exc.detail, str) else "Request failed"
-        return error_response(request, exc.status_code, "HTTP_ERROR", message)
+        return error_response(
+            request, exc.status_code, "HTTP_ERROR", message, headers=exc.headers
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(

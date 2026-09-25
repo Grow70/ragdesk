@@ -1,6 +1,6 @@
 # Ragdesk
 
-面向模拟企业资料的知识库问答系统。当前仅完成可启动的 FastAPI 后端骨架：`/health/live`、环境变量配置、统一错误响应和本地 PostgreSQL + pgvector 开发环境。尚无登录、上传、数据库业务表或模型调用。
+面向模拟企业资料的知识库问答系统。当前完成后端骨架、核心数据库表和演示用户身份认证。支持 `/health/live`、`/auth/session`、`/auth/me`；尚无知识库权限、上传或模型调用。
 
 需求和后续实现契约分别见 [docs/requirements.md](docs/requirements.md) 与 [docs/architecture.md](docs/architecture.md)。
 
@@ -16,18 +16,29 @@ docker compose ps db
 $env:DATABASE_URL = "postgresql+psycopg://ragdesk:$($env:POSTGRES_PASSWORD)@127.0.0.1:5432/ragdesk"
 $env:MODEL_PROVIDER = "example"
 $env:MODEL_NAME = "not-used-yet"
+$secretBytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($secretBytes)
+$rng.Dispose()
+$env:JWT_SECRET = [Convert]::ToBase64String($secretBytes)
 Set-Location backend
 uv sync --locked
+uv run --locked alembic upgrade head
+uv run --locked python -m app.init_demo_users --login-name alice --display-name Alice
 uv run --locked uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
-另开一个 PowerShell 窗口检查健康接口：
+初始化脚本会交互式要求输入并确认至少 12 字符的演示密码；不会创建默认账号，也不会在应用启动时自动运行。另开一个 PowerShell 窗口检查健康接口和登录：
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/health/live
+$credential = Get-Credential -UserName alice -Message "Demo login"
+$body = @{ login_name = $credential.UserName; password = $credential.GetNetworkCredential().Password } | ConvertTo-Json
+$session = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/auth/session -ContentType application/json -Body $body
+Invoke-RestMethod -Uri http://127.0.0.1:8000/auth/me -Headers @{ Authorization = "Bearer $($session.access_token)" }
 ```
 
-应返回 `status: ok` 和非空 `request_id`。该接口只检查 Web 进程，不检查数据库或模型。`DATABASE_URL`、`MODEL_PROVIDER`、`MODEL_NAME` 必需；`MODEL_API_KEY` 当前可不设置，后续真正调用模型时才需要。配置类只读取进程环境变量，不自动加载 `.env`；[backend/.env.example](backend/.env.example) 仅列出变量名和占位值。若密码含 URL 特殊字符，构造 `DATABASE_URL` 时需先对密码做 URL 编码。
+健康接口应返回 `status: ok` 和非空 `request_id`，它只检查 Web 进程。登录成功返回有过期时间的 Bearer JWT；`/auth/me` 返回令牌对应的用户身份。`DATABASE_URL`、`MODEL_PROVIDER`、`MODEL_NAME`、`JWT_SECRET` 必需；`JWT_SECRET` 至少 32 字节，只从环境变量读取。`MODEL_API_KEY` 当前可不设置。配置类不自动加载 `.env`；[backend/.env.example](backend/.env.example) 不包含真实密钥。若数据库密码含 URL 特殊字符，构造 `DATABASE_URL` 时需先做 URL 编码。演示配置和密码不作为生产默认配置；重新生成签名密钥会使旧令牌失效。
 
 ## 数据库结构
 
@@ -38,7 +49,7 @@ uv run --locked alembic upgrade head
 uv run --locked alembic current
 ```
 
-首个迁移创建六张核心表，不包含向量列。迁移回退只在临时测试库中验证；不要对已有资料的数据库运行 `alembic downgrade base`。
+首个迁移创建六张核心表，第二个迁移给用户添加可空登录名和 Argon2id 哈希列，以保留旧用户；均不包含向量列。迁移回退只在临时测试库中验证；不要对已有资料的数据库运行 `alembic downgrade base`，回退凭据迁移会删除登录名和密码哈希。
 
 若要运行数据库集成检查，在 `backend` 目录设置测试服务器连接（指向 Compose 的默认 `postgres` 库），测试会自行创建并删除名称随机的独立数据库，不改动 `ragdesk` 库：
 

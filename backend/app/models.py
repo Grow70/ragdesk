@@ -27,11 +27,20 @@ class Base(DeclarativeBase):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("login_name", name="uq_users_login_name"),
+        CheckConstraint(
+            "password_hash IS NULL OR password_hash LIKE '$argon2id$%'",
+            name="ck_users_password_hash_argon2id",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    login_name: Mapped[str | None] = mapped_column(String(100))
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

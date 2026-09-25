@@ -15,6 +15,7 @@ def configured_env(monkeypatch):
     monkeypatch.setenv("MODEL_PROVIDER", "example")
     monkeypatch.setenv("MODEL_NAME", "example-model")
     monkeypatch.setenv("MODEL_API_KEY", "model-secret-sentinel")
+    monkeypatch.setenv("JWT_SECRET", "jwt-secret-sentinel-with-at-least-32-bytes")
 
 
 def test_health_returns_request_id(configured_env):
@@ -26,9 +27,11 @@ def test_health_returns_request_id(configured_env):
 
 
 def test_missing_required_configuration_is_explicit(monkeypatch):
-    for name in ("DATABASE_URL", "MODEL_PROVIDER", "MODEL_NAME"):
+    for name in ("DATABASE_URL", "JWT_SECRET", "MODEL_PROVIDER", "MODEL_NAME"):
         monkeypatch.delenv(name, raising=False)
-    with pytest.raises(RuntimeError, match="DATABASE_URL.*MODEL_NAME.*MODEL_PROVIDER"):
+    with pytest.raises(
+        RuntimeError, match="DATABASE_URL.*JWT_SECRET.*MODEL_NAME.*MODEL_PROVIDER"
+    ):
         load_settings()
 
 
@@ -60,4 +63,5 @@ def test_errors_use_envelope_without_leaking_secrets(configured_env, capfd):
     output = captured.out + captured.err
     assert "db-secret-sentinel" not in output
     assert "model-secret-sentinel" not in output
+    assert "jwt-secret-sentinel" not in output
     assert "model-secret-sentinel" not in str(failed.json())

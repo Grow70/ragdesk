@@ -97,7 +97,7 @@ flowchart TD
 
 第 4 步的核心表为 `users`、`knowledge_bases`、`kb_members(user_id, kb_id, role)`、`documents(id, kb_id, file_name, file_sha256, deleted_at, active_build_id)`、`document_builds(id, document_id, status, parser_config, chunking_config, model_config_id, error_code, error_message, created_at, finished_at)` 和 `chunks(id, build_id, ordinal, body, content_sha256, page_number, heading_path, start_line, end_line)`；文档的私有文件存储定位也保存在 `documents.storage_key`。`chunks` 的文档及知识库归属由 build 和 document 外键链确定，避免重复列失配。`kb_members` 对用户与知识库组合唯一；未删除文档的同库文件摘要唯一；`active_build_id` 必须引用本文件的构建。向量列及维度待模型适配步骤确定后再通过迁移加入；F2 时增加 `tasks`。
 
-核心表采用 Alembic 显式迁移，应用启动不调用 `create_all`。`active_build_id` 使用 `(documents.id, active_build_id)` 到 `(document_builds.document_id, id)` 的组合外键，防止指向其他文档的构建；可检索块查询还需检查当前库、未删除和 build 状态为 `ready`。表定义与迁移用法参考 [SQLAlchemy 声明式映射](https://docs.sqlalchemy.org/en/20/orm/declarative_tables.html)、[PostgreSQL 方言](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html) 和 [Alembic 迁移教程](https://alembic.sqlalchemy.org/en/latest/tutorial.html)。
+核心表采用 Alembic 显式迁移，应用启动不调用 `create_all`。`active_build_id` 使用 `(documents.id, active_build_id)` 到 `(document_builds.document_id, id)` 的组合外键，防止指向其他文档的构建；可检索块查询还需检查当前库、未删除和 build 状态为 `ready`。第 5 步为 `users` 增加可空的 `login_name` 与 `password_hash`，使第 4 步已有的无登录资料用户仍可保留；仅演示初始化命令创建带 Argon2id 哈希的可登录用户。表定义与迁移用法参考 [SQLAlchemy 声明式映射](https://docs.sqlalchemy.org/en/20/orm/declarative_tables.html)、[PostgreSQL 方言](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html) 和 [Alembic 迁移教程](https://alembic.sqlalchemy.org/en/latest/tutorial.html)。
 
 构建状态：`queued → processing → ready` 或 `queued/processing → failed`。`ready` 表示该 build 的全部解析、分块、向量及索引记录已经完成并校验；只有被 `documents.active_build_id` 指向的 ready build 才对检索生效。`failed` 必须有机器可识别的错误码和供管理员查看的安全说明。文档对外状态至少有 `processing`、`ready`、`failed`、`deleted`；若重建失败但旧 active build 仍在，文档保持 `ready`，同时展示最新构建 `failed` 及原因。F2 的任务状态可映射到构建状态，但任务不是引用来源。
 
@@ -105,7 +105,7 @@ flowchart TD
 
 ## 7. 授权与错误规则
 
-- 认证：API 从后端验证的会话或令牌得到 principal；认证方案在实现前确定。未认证返回 `401`。不得读取请求体 `user_id` 决定身份。
+- 认证：第 5 步提供 `POST /auth/session` 和 `GET /auth/me`。演示用户由显式命令创建，不设默认密码；密码只以 Argon2id 哈希保存。登录成功签发有 `sub`（用户 UUID）、`iat` 和 `exp` 的 Bearer JWT；签名算法固定为 HS256，服务端仅从环境变量读取签名密钥。后端校验签名、算法、必需声明、过期时间及用户仍存在后，才把 `sub` 作为 principal。缺失或无效令牌返回 `401`；错误密码与不存在账号返回相同响应。不得读取请求体 `user_id` 决定身份。第 5 步不实现知识库角色授权，也不提供注册、找回密码、短信登录、刷新令牌或 SSO。用法参考 [FastAPI JWT 教程](https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/)、[PyJWT 过期声明](https://pyjwt.readthedocs.io/en/stable/usage.html) 和 [argon2-cffi API](https://argon2-cffi.readthedocs.io/en/stable/api.html)。
 - 知识库权限：管理员可上传、查看处理状态、删除、管理成员，并具有成员能力；成员可检索、问答、查看授权来源；未加入的用户不可访问。未知库或无成员资格建议统一返回 `404`，避免泄露库是否存在；已授权成员尝试管理员操作返回 `403`。
 - 所有列表、详情、任务、引用、检索 SQL 都带知识库约束；先按可信 principal 检查 membership，再按同库资源 ID 查询。前端隐藏按钮仅改善体验，不能代替后端检查。
 - 参数或格式错误返回 `400/415/422` 中合适状态，错误体说明原因；冲突依照接口语义返回 `409`。模型、存储或数据库故障返回 `5xx` 与可追踪错误码。内部堆栈和密钥不能返回客户端。
@@ -130,7 +130,7 @@ flowchart TD
 
 | 分类 | 方法与路径 | 权限 | 主要请求 / 响应 |
 | --- | --- | --- | --- |
-| 认证 | `POST /auth/session`, `GET /auth/me`, `DELETE /auth/session` | 登录入口 / 已认证 | 建立、查询、撤销会话；`me` 返回后端识别的用户 ID。认证凭据格式待定。 |
+| 认证 | `POST /auth/session`, `GET /auth/me` | 登录入口 / 已认证 | `POST` 接收 `{ "login_name": "...", "password": "..." }`，返回 Bearer `access_token`、`expires_in` 和 `request_id`；`me` 返回从已验证令牌识别的用户 ID、登录名、显示名和 `request_id`。第 5 步不提供注销或令牌撤销接口。 |
 | 知识库 | `GET /knowledge-bases`, `POST /knowledge-bases`, `GET /knowledge-bases/{kb_id}` | 已认证；详情需成员 | 仅列出有权访问的库；创建者为管理员。 |
 | 成员授权 | `GET /knowledge-bases/{kb_id}/members`, `PUT /knowledge-bases/{kb_id}/members/{member_id}` | 管理员 | 查看、授予或调整该库成员角色；不能通过此接口读取其他库成员。 |
 | 文档 | `POST /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents/{document_id}`, `DELETE /knowledge-bases/{kb_id}/documents/{document_id}` | 管理员 | 上传、列表与状态、详情、删除；重复上传返回已有 ID。 |

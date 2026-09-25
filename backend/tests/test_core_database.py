@@ -49,6 +49,7 @@ def test_core_migration_constraints_query_and_rollback(monkeypatch):
         monkeypatch.setenv("DATABASE_URL", database_url)
         monkeypatch.setenv("MODEL_PROVIDER", "test")
         monkeypatch.setenv("MODEL_NAME", "unused")
+        monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-of-at-least-32-bytes-long")
 
         with TestClient(create_app()) as client:
             assert client.get("/health/live").status_code == 200
