@@ -23,6 +23,9 @@ class RetrievedChunk:
     distance: float | None
     rank: int
     bm25_score: float | None = None
+    rrf_score: float | None = None
+    vector_rank: int | None = None
+    bm25_rank: int | None = None
 
 
 def has_candidates(session: Session, kb_id: UUID, model_config_id: str) -> bool:

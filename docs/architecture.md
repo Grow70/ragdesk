@@ -89,7 +89,7 @@ flowchart TD
 | --- | --- | --- |
 | `ParsedSection` | `section_index: int`, `text: str`, `source_locator: str`, `block_type: "paragraph" \| "list" \| "code"` | `document_id: str?`, `page_number: int?`, `heading_path: list[str]?`, `start_line: int?`, `end_line: int?`；必须至少有页码、标题路径或行号之一。解析器只接收受控文件路径，可选 `document_id` 由调用方传入，独立预览时为 `null`；`section_index` 从 0 开始。Markdown/TXT 使用原文行号范围，`page_number` 为 `null`；PDF 使用从 1 开始的物理页码作为 `page_number` 和 `source_locator`，行号为 `null`，每个有文字的页面至少独立成一个 section。 |
 | `Chunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `ordinal: int`, `text: str` | 同上四个定位字段；继承原文位置，不能跨文档或构建拼接。数据库 `chunks` 表通过 `build_id` 关联文档和知识库，读取时派生 `document_id`、`knowledge_base_id`；向量列在模型适配步骤增加，不暴露给 API。 |
-| `RetrievedChunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `document_name: str`, `text: str`, `distance: float?`, `rank: int` | `page_number: int?`, `heading_path: list[str]?`；第 14 步的 `distance` 是 pgvector cosine distance，越小越相似，不是答案正确概率；`rank` 从 1 开始。仅可来自当前库的有效 build。第 17 步增加 `bm25_score: float?`，BM25 返回 `distance=null`、BM25 原始分数（越大排名越前，可为零或负数）；向量结果 `bm25_score=null`。两类分数不比较、不融合。 |
+| `RetrievedChunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `document_name: str`, `text: str`, `distance: float?`, `rank: int` | `page_number: int?`, `heading_path: list[str]?`；第 14 步的 `distance` 是 pgvector cosine distance，越小越相似，不是答案正确概率；`rank` 从 1 开始。仅可来自当前库的有效 build。第 17 步增加 `bm25_score: float?`，BM25 返回 `distance=null`、BM25 原始分数（越大排名越前，可为零或负数）；向量结果 `bm25_score=null`。两类原始分数不直接相加。第 18 步新增 `rrf_score: float?`、`vector_rank: int?`、`bm25_rank: int?`，只用两路排名计算融合，原始分数保留供诊断。 |
 | `Citation` | `citation_id: str`, `document_id: str`, `build_id: str`, `chunk_id: str`, `document_name: str`, `snippet: str`, `source_path: str` | 同上定位字段；`source_path` 指向需重新授权的来源接口，不能是公开文件地址。 |
 | `AnswerResult` | `status: "answered" \| "insufficient_evidence" \| "needs_clarification"`, `answer: str`, `citations: list[Citation]`, `request_id: str` | `answered` 必须有非空、经校验的引用；其余两种状态的 `citations` 为空，`answer` 分别写明资料不足或需要补充什么。 |
 
@@ -278,3 +278,20 @@ gold evidence 的稳定文档 ID 通过清单原文件 SHA-256 绑定数据库�
 初版仅提供服务及独立 `app.evaluate_bm25` 命令，不接入问答、不融合、不替换向量调试接口。记录授权读库、分词（含每次词典初始化）、建 BM25、评分与排序、返回前复核、总耗时，以及块数/正文 UTF-8 字节数/词项数。小规模每请求构建是可观测取舍，无预设延迟目标。
 
 BM25 评测默认 dev，复用第 16 步 gold 原文和位置匹配规则，单独目录保存原始候选、分数、配置/语料/代码摘要与成本。正式指标仍要求全部所选题人工复核；`--draft-diagnostics` 仅允许 dev 草稿产生原始候选与成本，效果指标为 null、状态标为 draft_diagnostics，绝不替代人工复核。仅做检索，拒答、引用和生成效果不适用。保留旧向量产物；真实向量未运行时不宣称两路效果比较。独立脚本不调用 Embedding/Chat。
+
+
+## 13. 第 18 步 RRF 融合契约
+
+独立融合服务复用现有向量和 BM25 授权服务，每路 top_k 固定 20，输出默认前 5（允许 1～20）。仅按 chunk_id 合并；一块在同一路重复出现时只保留最小原始排名并贡献一次，不给重复项累计奖励。不跨库合并，块 ID 相同但来源/正文元数据不一致属于错误。输入排名为 1～20 的整数；超过每路前 20 项的输入不参与。
+
+固定 `rrf_score(d) = sum(1 / (60 + rank_i(d)))`，未出现的路贡献 0；不归一化或相加原始 distance/BM25 分数。内部用有理数累计及比较，输出浮点值，同分按 chunk_id 升序，避免输入遍历顺序影响并列结果。RetrievedChunk 中 rank 是融合后的排名；vector_rank / bm25_rank 保留原始排名，缺失为 null；distance/bm25_score 分别保留其所属路原始值。
+
+服务输入使用后端认证用户。两路前读取授权当前语料，串行调用两路后再次授权并核对整个文本/构建集合，任何变化返回 RRF_CORPUS_CHANGED，不混合不同构建时刻的内容；全部候选均须与已核验语料的真实来源匹配。没有新增跨请求缓存。
+
+`FusionConfig(allow_degraded=False)` 默认严格；显式开启时，仅允许适配层 MODEL_TIMEOUT/MODEL_NETWORK_ERROR/MODEL_UNAVAILABLE，以及 SQLAlchemy 连接池超时或 PostgreSQL 指定临时状态码（40001、40P01、55P03、57014）触发单路降级。数据库认证/权限错误、知识库 NotFound、认证失败、模型密钥/配置/参数/维度错误、语料变化和未知异常一律传播，不降级。降级后仍重查成员资格和当前集合；双路临时失败返回 RRF_ALL_ROUTES_FAILED，不能当空结果。单路成功但为空属于正常空路，不算故障。
+
+返回 `FusionResult(items, trace)`；trace 始终包含 allow_degraded、degraded、各路状态/安全错误码/耗时/原始最多 20 个候选，以及最终状态和整体耗时；异常时可通过调用方传入的 trace 获得诊断。现有问答与向量 HTTP 接口暂不切换，本步不实现重排模型。
+
+独立 `app.evaluate_rrf` 默认 dev 预检；正式运行要求已复核样本及真实、兼容的向量索引。每题只取一次向量20和BM25最多20，同一候选分别截取前5为单路对照，并用 RRF 取前5；语料/切块/嵌入模型/BM25参数/gold匹配不变。正式比较只汇总三路都完成且未降级、gold非空的配对题，同时报告排除数；保存逐题三路原始输出、排名、指标和差值。降级题可留诊断，不能混入完整三路比较。没有提升时原样报告零/负差值。
+
+`--fake-diagnostics` 仅对 dev 显式使用隔离的 fake 向量索引验证全流程，不生成正式效果指标、提升结论或假装真实 API 可用。原第16/17步目录不覆盖。缺少人工复核或真实 API 配置时保存阻塞事实，不能据 fake 数字评价 RRF 效果。

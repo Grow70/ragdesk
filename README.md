@@ -257,3 +257,16 @@ uv run --locked pytest -q tests/test_bm25.py tests/test_bm25_evaluation.py
 ```
 
 配置数据库、`EVAL_BEARER_TOKEN` 和 A/B 库映射后，可加 `--run --draft-diagnostics --mapping <映射文件>` 保存 dev 草稿的实际原始候选与成本；正式效果指标仍为 null。完成人工复核后去掉 `--draft-diagnostics`，才生成正式检索指标。无需真实模型密钥。产物写入独立目录，保留原向量报告。预处理、分数含义、成本测量与完整 PowerShell 命令见 [BM25 说明](docs/bm25.md)。
+
+## RRF 融合与三路对比
+
+第18步提供 `app.services.hybrid.search`：向量与BM25各取最多20，按chunk_id去重，使用 `Σ 1/(60+rank)` 返回默认前5，保留各路原始排名。只融合排名，不直接相加原始分数。降级默认关闭；显式配置后仅允许白名单临时故障，权限和数据变化错误始终失败。现有问答和 `/search` 继续使用原向量服务。
+
+在 `backend` 目录执行：
+
+```powershell
+uv run --locked python -m app.evaluate_rrf
+uv run --locked pytest -q tests/test_rrf.py tests/test_hybrid.py tests/test_rrf_evaluation.py
+```
+
+真实比较需已复核 dev、兼容真实索引、登录令牌和API配置，再显式传入 `--run-real --mapping <映射文件>`。离线 `--fake-diagnostics` 只验证三路流程，不能说明RRF是否提升了语义检索。每次保存独立报告，复用同次候选作公平对照，原向量和BM25产物保留。配置、手算例子、降级规则及完整命令见 [RRF 说明](docs/rrf.md)。
