@@ -107,7 +107,7 @@ flowchart TD
 
 ## 6. 数据模型、状态与发布规则
 
-第 4 步的核心表为 `users`、`knowledge_bases`、`kb_members(user_id, kb_id, role)`、`documents(id, kb_id, file_name, file_sha256, deleted_at, active_build_id)`、`document_builds(id, document_id, status, parser_config, chunking_config, model_config_id, error_code, error_message, created_at, finished_at)` 和 `chunks(id, build_id, ordinal, body, content_sha256, page_number, heading_path, start_line, end_line)`；文档的私有文件存储定位也保存在 `documents.storage_key`。`chunks` 的文档及知识库归属由 build 和 document 外键链确定，避免重复列失配。`kb_members` 对用户与知识库组合唯一；未删除文档的同库文件摘要唯一；`active_build_id` 必须引用本文件的构建。第 13 步通过迁移增加 `chunks.embedding vector(1536)` 与原文 span JSON，并为构建增加 Embedding 提供方、模型、维度、配置版本和预期块数；旧行允许空值，但查询排除空向量。F2 时增加 `tasks`。
+第 4 步的核心表为 `users`、`knowledge_bases`、`kb_members(user_id, kb_id, role)`、`documents(id, kb_id, file_name, file_sha256, deleted_at, active_build_id)`、`document_builds(id, document_id, status, parser_config, chunking_config, model_config_id, error_code, error_message, created_at, finished_at)` 和 `chunks(id, build_id, ordinal, body, content_sha256, page_number, heading_path, start_line, end_line)`；文档的私有文件存储定位也保存在 `documents.storage_key`。`chunks` 的文档及知识库归属由 build 和 document 外键链确定，避免重复列失配。`kb_members` 对用户与知识库组合唯一；未删除文档的同库文件摘要唯一；`active_build_id` 必须引用本文件的构建。第 13 步通过迁移增加 `chunks.embedding vector(1536)` 与原文 span JSON，并为构建增加 Embedding 提供方、模型、维度、配置版本和预期块数；旧行允许空值，但查询排除空向量。第 20A 步增加 `ingestion_jobs`，见本文末尾任务契约。
 
 核心表采用 Alembic 显式迁移，应用启动不调用 `create_all`。`active_build_id` 使用 `(documents.id, active_build_id)` 到 `(document_builds.document_id, id)` 的组合外键，防止指向其他文档的构建；可检索块查询还需检查当前库、未删除和 build 状态为 `ready`。第 5 步为 `users` 增加可空的 `login_name` 与 `password_hash`，使第 4 步已有的无登录资料用户仍可保留；仅演示初始化命令创建带 Argon2id 哈希的可登录用户。表定义与迁移用法参考 [SQLAlchemy 声明式映射](https://docs.sqlalchemy.org/en/20/orm/declarative_tables.html)、[PostgreSQL 方言](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html) 和 [Alembic 迁移教程](https://alembic.sqlalchemy.org/en/latest/tutorial.html)。
 
@@ -308,3 +308,39 @@ BM25 评测默认 dev，复用第 16 步 gold 原文和位置匹配规则，单�
 - dev 比较使用同一次 RRF20 的前 5 项作基线，重排前 20 项后取 5 项作实验组。仅已复核、真实模型、未降级、有 gold 的配对样本进入质量统计。保存数据/代码/索引配置及原始输出；fake 只作流程诊断。默认关闭，待真实 dev 质量、延迟和成本结果支持后再决定。
 
 官方依据：[Cohere v2 Rerank](https://docs.cohere.com/v2/reference/rerank)、[模型及语言](https://docs.cohere.com/docs/rerank-overview)、[HTTPX 超时](https://www.python-httpx.org/advanced/timeouts/)（核对日期 2026-09-27）。
+
+
+## 第 20A 步：数据库入库任务与单 worker
+
+本节替代先前 F2 的 tasks/task_id 规划及上传 201/200 约定。新增上传返回 `202`，原文件落盘、文档与任务同一数据库事务提交后返回，不解析或调用模型。重复文件复用已有文档及最近任务；显式重新入库可在上一任务终结后建立新任务。原文件格式/大小检查仍在请求内完成，因此“快速返回”指不等待解析/Embedding，不承诺未测量的延迟。
+
+- `ingestion_jobs`：id、document_id、requested_by、build_id（可空）、status、attempts、profile（不含密钥的 Embedding/切块/批次配置快照）、error_code、error_summary、created_at、started_at、finished_at。
+- 状态 `queued → running → succeeded/failed`，排队尝试数 0，领取后 1；本步不自动重试。文档外键、请求用户外键、同文档构建组合外键；对 document_id 建 `status IN ('queued','running')` 的部分唯一索引，另按 status/created_at/id 支持队列查询。
+- 任务创建在文档行锁内复查管理员权限并复用活动任务；数据库约束兜底。上传重复请求（含已结束任务）返回最近 job_id，不暗中重建；只有显式入库请求在终态后新建任务。
+- 构建仍由原 `ingest_document` 创建；worker 使用 job.id 作为预分配的构建 UUID，调用结束后把实际存在的构建写入 job.build_id。排队、运行或建构建前失败时该外键可为空；并不意味着已经有可检索构建。构建和任务终态非原子提交，崩溃窗口留至下一步解决。
+- worker 短事务 `SELECT ... FOR UPDATE` 领取最早 queued，提交 running 后退出会话，再调用原入库服务；结果以另一个短事务持久化。不使用 FastAPI BackgroundTasks、不引入队列中间件。只支持一个常驻 worker，运维不得同时启动多个 worker 或并行 CLI 入库；不宣称分布式领取、心跳、租约、自动恢复或 exactly-once。
+- 创建是管理员向服务提交持久任务的授权；worker 作为本地受信任操作进程执行已接受任务，成员变化不自动取消任务。文档删除仍由现有入库服务阻止发布。任务查询每次按当前后端用户执行 require_kb_admin，限定库/文档/任务完整链；不存在、已删除或无库权限统一 404，普通成员返回 403，与既有处理状态权限契约一致。
+- 失败仅保存安全错误码/摘要，不保存 provider 原文、正文、密钥。失败重建不破坏旧 active build。没有真实密钥时任务以明确配置错误失败，不回退 fake。
+
+| 入口 | 成功响应 |
+| --- | --- |
+| `POST /knowledge-bases/{kb_id}/documents` multipart file | 202 `{document_id, status: "uploaded", job_id, job_status, status_url, request_id}`；uploaded 表示原文件已保存 |
+| `POST /knowledge-bases/{kb_id}/documents/{document_id}/ingestions` 无请求体 | 202 同上；复用 queued/running 或创建新的 queued |
+| `GET /knowledge-bases/{kb_id}/documents/{document_id}/jobs/{job_id}` | 200 `{job_id, document_id, build_id, status, attempts, error_code, error_summary, created_at, started_at, finished_at, request_id}` |
+
+服务端沿用 `RETRIEVAL_EMBEDDING_BACKEND` 及 Embedding 模型/维度配置创建任务快照；客户端不能选择 fake、模型或用户身份。worker 按快照选择模型，密钥和超时仅取 worker 环境。API 与 worker 共享同一数据库和私有上传目录。CLI `python -m app.ingest_document` 保留供单独调试，不与 worker 并行使用。
+
+```mermaid
+flowchart TD
+    A[管理员上传或请求入库] --> B[校验身份与文件]
+    B --> C[短事务持久化文档和 queued 任务或复用已有任务]
+    C --> D[返回 202 与 job_id]
+    C --> E[单 worker 领取并提交 running]
+    E --> F[退出领取事务后调用原入库服务]
+    F --> G{完整构建并发布成功?}
+    G -- 是 --> H[短事务写 succeeded 与 build_id]
+    G -- 否 --> I[短事务写 failed 与安全错误摘要]
+    D --> J[管理员轮询受保护任务接口]
+```
+
+官方依据：[SQLAlchemy 事务](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html)、[PostgreSQL 部分唯一索引](https://www.postgresql.org/docs/current/indexes-partial.html)、[SELECT 行锁](https://www.postgresql.org/docs/current/sql-select.html)、[FastAPI 状态码](https://fastapi.tiangolo.com/tutorial/response-status-code/)；沿用现有锁文件。

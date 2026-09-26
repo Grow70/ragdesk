@@ -207,3 +207,57 @@ class Chunk(Base):
     end_line: Mapped[int | None] = mapped_column(Integer)
     source_spans: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
     embedding: Mapped[list[float] | None] = mapped_column(VECTOR(1536))
+
+
+class IngestionJob(Base):
+    __tablename__ = "ingestion_jobs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["document_id", "build_id"],
+            ["document_builds.document_id", "document_builds.id"],
+            name="fk_ingestion_jobs_build_same_document",
+        ),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed')",
+            name="ck_ingestion_jobs_status",
+        ),
+        CheckConstraint("attempts >= 0", name="ck_ingestion_jobs_attempts"),
+        CheckConstraint(
+            "status <> 'failed' OR "
+            "(error_code IS NOT NULL AND error_summary IS NOT NULL)",
+            name="ck_ingestion_jobs_failed_error",
+        ),
+        CheckConstraint(
+            "status <> 'succeeded' OR build_id IS NOT NULL",
+            name="ck_ingestion_jobs_success_build",
+        ),
+        Index(
+            "uq_ingestion_jobs_active_document",
+            "document_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+        Index("ix_ingestion_jobs_queue", "status", "created_at", "id"),
+        Index("ix_ingestion_jobs_document_created", "document_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    document_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("documents.id"), nullable=False
+    )
+    requested_by: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    build_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    profile: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_summary: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

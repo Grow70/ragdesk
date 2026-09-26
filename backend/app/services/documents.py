@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Document
 from app.repositories import documents as repo
+from app.services.ingestion_jobs import enqueue
 from app.services.knowledge_bases import NotFound, require_kb_admin, require_kb_member
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -96,8 +97,13 @@ def _existing_id(
 
 
 def upload(
-    session: Session, user_id: UUID, kb_id: UUID, file: UploadFile, storage_dir: Path
-) -> tuple[UUID, bool]:
+    session: Session,
+    user_id: UUID,
+    kb_id: UUID,
+    file: UploadFile,
+    storage_dir: Path,
+    profile,
+):
     require_kb_admin(session, user_id, kb_id)
     filename, suffix = _filename(file)
     root = storage_dir.resolve()
@@ -128,7 +134,11 @@ def upload(
         sha256 = digest.hexdigest()
         existing_id = _existing_id(session, kb_id, sha256, temporary, root)
         if existing_id is not None:
-            return existing_id, False
+            job = enqueue(
+                session, user_id, kb_id, existing_id, profile, reuse_latest=True
+            )
+            session.commit()
+            return existing_id, job
 
         storage_key = f"objects/{uuid4().hex}"
         final = _private_path(root, storage_key)
@@ -142,15 +152,21 @@ def upload(
         )
         session.add(document)
         try:
+            session.flush()
+            job = enqueue(session, user_id, kb_id, document.id, profile)
             session.commit()
         except IntegrityError:
             session.rollback()
             existing_id = _existing_id(session, kb_id, sha256, final, root)
             if existing_id is not None:
-                return existing_id, False
+                job = enqueue(
+                    session, user_id, kb_id, existing_id, profile, reuse_latest=True
+                )
+                session.commit()
+                return existing_id, job
             raise
         committed = True
-        return document.id, True
+        return document.id, job
     except Exception:
         session.rollback()
         raise

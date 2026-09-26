@@ -1,6 +1,6 @@
 # Ragdesk
 
-面向模拟企业资料的知识库问答系统。当前完成后端骨架、核心数据库表、演示用户身份认证、知识库与成员权限、原文件上传与受保护读取，以及解析器、切块器和独立的模型适配层。支持 `/health/live`、`/auth/session`、`/auth/me`、`/knowledge-bases` 和文档接口；尚未将模型接入完整 RAG 流程。
+面向模拟企业资料的知识库问答系统。当前提供认证、知识库权限、文档与解析、固定 RAG 问答、检索评测，以及数据库入库任务和单 worker。真实模型效果的验证状态见各步骤实验记录。
 
 需求和后续实现契约分别见 [docs/requirements.md](docs/requirements.md) 与 [docs/architecture.md](docs/architecture.md)。
 
@@ -55,7 +55,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)" -Header
 
 ## 原文件上传与读取
 
-管理员可通过 `POST /knowledge-bases/{kb_id}/documents` 的 `file` 表单字段上传 `.md`、`.txt` 或 `.pdf`，单文件最多 10 MiB。服务端检查文本编码或 PDF 的基本头尾结构并计算 SHA-256；同一库中相同有效字节返回已有 `document_id`。新文件返回 `201`、`status: uploaded`；重复文件返回 `200`。`uploaded` 表示仅保存原文件，需显式运行下文命令行入库后才可供后续检索使用；PDF 的基础检查不能证明含有可提取文本，扫描页会在解析时报告不完整。
+管理员可通过 `POST /knowledge-bases/{kb_id}/documents` 的 `file` 表单字段上传 `.md`、`.txt` 或 `.pdf`，单文件最多 10 MiB。服务端检查文本编码或 PDF 的基本头尾结构并计算 SHA-256；同一库中相同有效字节返回已有 `document_id`。第 20A 步起返回 `202`、`document_id`、`status: uploaded`、`job_id`、`job_status` 与 `status_url`。新文件与任务同事务提交；重复文件复用已有文档及活动/最近任务。`uploaded` 表示原文件已保存，后台 worker 完成构建发布后才可检索，管理员可轮询 `status_url`；PDF 的基础检查不能证明含有可提取文本，扫描页会在解析时报告不完整。
 
 成员可通过 `GET /knowledge-bases/{kb_id}/documents?limit=20&offset=0` 分页查看文档，通过 `GET /knowledge-bases/{kb_id}/documents/{document_id}` 查看详情，并从 `GET /knowledge-bases/{kb_id}/documents/{document_id}/raw` 下载原文件。所有读取都重新检查当前成员资格。私有文件默认写到 `backend/var/uploads`，可设置 `UPLOAD_STORAGE_DIR` 指向其他**不公开映射**的目录；原始文件和数据库文件不要提交到 Git。
 
@@ -127,7 +127,7 @@ uv run --locked python -c "import os; from app.llm.openai import OpenAIEmbedding
 
 ## 单文档命令行入库
 
-第 13 步仅提供本地操作命令，处理**已上传**且未删除的文档；命令使用当前 `DATABASE_URL` 的数据库权限，须在可信的本地开发环境运行，不提供 HTTP 入库入口。先执行 `uv run --locked alembic upgrade head`，显式加入 `vector(1536)` 列及构建配置字段。命令从私有存储读取文件，解析、切块、分批嵌入并写候选构建；所有块齐全且与同库有效索引配置兼容后才发布。PDF 有无文字页警告时标为失败；失败构建不可检索，旧有效构建保持有效。
+第 13 步仅提供本地操作命令，处理**已上传**且未删除的文档；命令使用当前 `DATABASE_URL` 的数据库权限，须在可信的本地开发环境运行。第 20A 步新增后台任务和 HTTP 入库请求后，本 CLI 仍保留供独立调试；不要与 worker 并行使用，也不要把 CLI 完成等同于已有任务状态已同步。先执行 `uv run --locked alembic upgrade head`，显式加入 `vector(1536)` 列及构建配置字段。命令从私有存储读取文件，解析、切块、分批嵌入并写候选构建；所有块齐全且与同库有效索引配置兼容后才发布。PDF 有无文字页警告时标为失败；失败构建不可检索，旧有效构建保持有效。
 
 在 `backend` 目录、已设置 `DATABASE_URL`、`JWT_SECRET` 且按上文取得 `$uploaded` 后，使用 PowerShell：
 
@@ -283,3 +283,19 @@ uv run --locked pytest -q tests/test_reranker.py tests/test_reranked.py tests/te
 ```
 
 默认评测仅预检；真实比较需人工复核 dev、真实索引和 API 配置后显式 `--run-real`。本次 15 题 fake 诊断不产生正式效果数字。配置、单次真实验证命令、配对评测与默认关闭理由见 [重排及实验记录](docs/rerank.md)。
+
+
+## 数据库入库任务与单 worker（第 20A 步）
+
+API 接受上传后返回 `202`，独立 worker 领取 queued 任务并调用原入库服务。显式重新入库：`POST /knowledge-bases/{kb_id}/documents/{document_id}/ingestions`；管理员查询 `GET /knowledge-bases/{kb_id}/documents/{document_id}/jobs/{job_id}`。同一文档最多一个 queued/running 任务，重复上传连已结束的最近任务也复用；需要重建时显式请求入库。
+
+API 与 worker 使用相同数据库、私有上传目录。先在 `backend` 中执行迁移，再在另一个已配置环境的 PowerShell 终端启动唯一 worker：
+
+```powershell
+uv run --locked alembic upgrade head
+uv run --locked python -m app.worker
+```
+
+本地 fake 演示应在 **API 启动前** 设置 `$env:RETRIEVAL_EMBEDDING_BACKEND = "fake"`，且使用独立 fake 知识库。任务记录模型配置快照；worker 按快照执行，缺少真实密钥会明确失败，不自动换成 fake。单任务调试可运行 `uv run --locked python -m app.worker --once`，但不能与常驻 worker 同时运行。
+
+**仅支持单 worker 的正常流程；未实现崩溃恢复。** 强制退出可能留下 running 任务；本步没有自动重领、重试、租约或分布式运行保证。完整 PowerShell 演示、任务字段、错误码、测试和一致性边界见 [任务与 worker 说明](docs/ingestion_jobs.md)。

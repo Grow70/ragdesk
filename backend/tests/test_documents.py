@@ -124,7 +124,7 @@ def test_upload_formats_dedup_listing_and_protected_raw(document_env):
         ids = []
         for name, data in files:
             uploaded = _upload(client, kb_a, alice, name, data)
-            assert uploaded.status_code == 201, uploaded.text
+            assert uploaded.status_code == 202, uploaded.text
             assert uploaded.json()["status"] == "uploaded"
             document_id = uploaded.json()["document_id"]
             ids.append(document_id)
@@ -149,9 +149,9 @@ def test_upload_formats_dedup_listing_and_protected_raw(document_env):
         assert page.json()["limit"] == 2
         assert page.json()["offset"] == 1
         assert len(page.json()["items"]) == 2
-        assert all(item["status"] == "uploaded" for item in page.json()["items"])
+        assert all(item["status"] == "queued" for item in page.json()["items"])
         duplicate = _upload(client, kb_a, alice, "renamed.md", files[0][1])
-        assert duplicate.status_code == 200
+        assert duplicate.status_code == 202
         assert duplicate.json()["document_id"] == ids[0]
         assert (
             client.get(f"/knowledge-bases/{kb_a}/documents", headers=bob).json()[
@@ -160,7 +160,7 @@ def test_upload_formats_dedup_listing_and_protected_raw(document_env):
             == 3
         )
         other_kb = _upload(client, kb_b, alice, files[0][0], files[0][1])
-        assert other_kb.status_code == 201
+        assert other_kb.status_code == 202
         assert other_kb.json()["document_id"] != ids[0]
         with Session(engine) as session:
             docs = session.scalars(select(Document)).all()
@@ -229,7 +229,7 @@ def test_upload_rejects_invalid_input_and_unauthorized_users(document_env):
         boundary = _upload(
             client, kb_id, alice, "boundary.txt", b"a" * (10 * 1024 * 1024)
         )
-        assert boundary.status_code == 201
+        assert boundary.status_code == 202
         with Session(engine) as session:
             assert len(session.scalars(select(Document)).all()) == 1
         assert len(list((storage / "objects").iterdir())) == 1
@@ -243,12 +243,9 @@ def test_database_failure_removes_new_file(document_env, monkeypatch):
         kb_id = client.post(
             "/knowledge-bases", json={"name": "A"}, headers=alice
         ).json()["id"]
-        original_commit = Session.commit
 
         def fail_document_commit(session):
-            if any(isinstance(item, Document) for item in session.new):
-                raise RuntimeError("simulated database failure")
-            return original_commit(session)
+            raise RuntimeError("simulated database failure")
 
         with monkeypatch.context() as patch:
             patch.setattr(Session, "commit", fail_document_commit)
