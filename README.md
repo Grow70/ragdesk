@@ -243,3 +243,17 @@ uv run --locked pytest -q tests/test_evaluation.py tests/test_evaluation_runtime
 每次保存 `results.jsonl`、`summary.json`、`report.md`、`manifest.json` 和题目原文到独立 `artifacts/eval/` 目录。当前 30 条样本全部为 draft，预检会退出 2 并记录 `UNREVIEWED_SAMPLES`，效果值为 null；这不构成真实向量检索或 RAG 效果基线。
 
 完成人工复核、真实模型入库、库映射和环境配置后，使用 `--run-real --mapping <映射文件>` 显式运行真实评测。具体命令、分母、严格原文/位置匹配、模型费用上界和人工审核要求见 [评测说明](docs/evaluation.md)。test 需显式 `--split test` 并通过冻结摘要校验，不能用于反复调参。数据库测试使用 fake，不发真实模型请求；没有测试库配置时集成项跳过。
+
+## BM25 单路检索
+
+第 17 步新增 `app.services.bm25.search` 和独立评测 CLI，使用锁定的 jieba 与 rank-bm25。每请求重新读取授权库的 ready active 块并建立集合；保留错误码、英文缩写及完整产品号，零/负 BM25 分数不会导致词面匹配被误删。统一结果中的 `bm25_score` 越大排名越前，`distance=null`。本步没有融合，也未替换现有向量问答。
+
+在 `backend` 目录运行：
+
+```powershell
+uv sync --locked
+uv run --locked python -m app.evaluate_bm25
+uv run --locked pytest -q tests/test_bm25.py tests/test_bm25_evaluation.py
+```
+
+配置数据库、`EVAL_BEARER_TOKEN` 和 A/B 库映射后，可加 `--run --draft-diagnostics --mapping <映射文件>` 保存 dev 草稿的实际原始候选与成本；正式效果指标仍为 null。完成人工复核后去掉 `--draft-diagnostics`，才生成正式检索指标。无需真实模型密钥。产物写入独立目录，保留原向量报告。预处理、分数含义、成本测量与完整 PowerShell 命令见 [BM25 说明](docs/bm25.md)。

@@ -89,7 +89,7 @@ flowchart TD
 | --- | --- | --- |
 | `ParsedSection` | `section_index: int`, `text: str`, `source_locator: str`, `block_type: "paragraph" \| "list" \| "code"` | `document_id: str?`, `page_number: int?`, `heading_path: list[str]?`, `start_line: int?`, `end_line: int?`；必须至少有页码、标题路径或行号之一。解析器只接收受控文件路径，可选 `document_id` 由调用方传入，独立预览时为 `null`；`section_index` 从 0 开始。Markdown/TXT 使用原文行号范围，`page_number` 为 `null`；PDF 使用从 1 开始的物理页码作为 `page_number` 和 `source_locator`，行号为 `null`，每个有文字的页面至少独立成一个 section。 |
 | `Chunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `ordinal: int`, `text: str` | 同上四个定位字段；继承原文位置，不能跨文档或构建拼接。数据库 `chunks` 表通过 `build_id` 关联文档和知识库，读取时派生 `document_id`、`knowledge_base_id`；向量列在模型适配步骤增加，不暴露给 API。 |
-| `RetrievedChunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `document_name: str`, `text: str`, `distance: float`, `rank: int` | `page_number: int?`, `heading_path: list[str]?`；第 14 步的 `distance` 是 pgvector cosine distance，越小越相似，不是答案正确概率；`rank` 从 1 开始。仅可来自当前库的有效 build。后续混合检索如需不同分数，须新增明确命名的字段并修订契约。 |
+| `RetrievedChunk` | `chunk_id: str`, `document_id: str`, `build_id: str`, `knowledge_base_id: str`, `document_name: str`, `text: str`, `distance: float?`, `rank: int` | `page_number: int?`, `heading_path: list[str]?`；第 14 步的 `distance` 是 pgvector cosine distance，越小越相似，不是答案正确概率；`rank` 从 1 开始。仅可来自当前库的有效 build。第 17 步增加 `bm25_score: float?`，BM25 返回 `distance=null`、BM25 原始分数（越大排名越前，可为零或负数）；向量结果 `bm25_score=null`。两类分数不比较、不融合。 |
 | `Citation` | `citation_id: str`, `document_id: str`, `build_id: str`, `chunk_id: str`, `document_name: str`, `snippet: str`, `source_path: str` | 同上定位字段；`source_path` 指向需重新授权的来源接口，不能是公开文件地址。 |
 | `AnswerResult` | `status: "answered" \| "insufficient_evidence" \| "needs_clarification"`, `answer: str`, `citations: list[Citation]`, `request_id: str` | `answered` 必须有非空、经校验的引用；其余两种状态的 `citations` 为空，`answer` 分别写明资料不足或需要补充什么。 |
 
@@ -265,3 +265,16 @@ ragdesk/
 gold evidence 的稳定文档 ID 通过清单原文件 SHA-256 绑定数据库文档；章节原文解析成 section_index 和字符区间。首版采用严格完整单元匹配：单个候选既含完整标注原文，又覆盖其真实原文位置才相关；标注跨块且没有单个候选覆盖完整单元时记未命中，不拼接结果虚增命中。重复的文档/章节/原文标注去重。Hit@5、Evidence Recall@5 和 MRR@5 只在 gold 非空且检索实际完成的题目上统计，均报告分母；检索成功但 Chat 失败仍可计检索指标。拒答、不足条件澄清、错误与未运行分别计数；不把技术错误记作拒答。
 
 逐题 JSONL 保存输入、gold 定位、检索结果、Chat 适配层原始结构化输出、HTTP 响应体（含错误 JSON，脱敏已知 API 密钥）、最终回答/错误、引用合法性、分段耗时和模型已报告 token。不保存请求头；网络失败没有响应体时不重建；失败请求和重试的未知 token 记未知，不伪装为零。manifest 保存数据/代码/锁文件摘要、代码版本和脏状态、模型配置、每个有效构建的解析与切块参数。汇总同时输出 JSON 和 Markdown；未运行时效果值为 null。事实正确性及引用对结论的支持度始终留待独立人工复核。运行产物存本地忽略目录，不包含密钥或数据库连接串。
+
+
+## 12. 第 17 步 BM25 单路契约
+
+使用锁定的 jieba 精确分词（HMM=False）和 rank_bm25.BM25Okapi（k1=1.5、b=0.75、epsilon=0.25）。查询与文档共享版本 `jieba-identifiers-v1`：Unicode NFKC、casefold；ASCII 字母数字及内部 `-`、`_`、`.` 组成的标识符整体保留，中文连续片段使用 jieba；丢弃标点和空白，不做停用词、词干、同义词扩展或自定义词典，保留词频。该规范化仅用于检索，返回原正文。查询和文档中的 NX-210-P、E_AUTH_401、HTTP 等使用相同规则。
+
+服务输入为后端识别的 user_id、单个 kb_id、query、top_k（默认 5，范围 1～20）。先复用 require_kb_member，再以 SQL 限定当前库、未删除文档、ready active build，连接实际 KBMember 过滤后取块；不读取向量，BM25 不依赖 Embedding 模型配置。每次请求新建语料分词和 BM25 对象，不缓存块、词频或结果，不修改全局词典；jieba 自身的公开词典磁盘缓存不含项目资料。CPU 计算时关闭数据库会话，返回前再次授权并核验当前语料；变化返回 BM25_CORPUS_CHANGED，下一次请求重新读取。
+
+只有与查询至少共享一个规范化词项的块可成为候选；无共同词项返回空，不以 score>0 过滤。按原始 BM25 分数降序、chunk_id 升序稳定排序，返回统一 RetrievedChunk。空库、全部仅标点的语料和查询安全返回空，不调用库的空集合评分。BM25 分数不是正确概率。
+
+初版仅提供服务及独立 `app.evaluate_bm25` 命令，不接入问答、不融合、不替换向量调试接口。记录授权读库、分词（含每次词典初始化）、建 BM25、评分与排序、返回前复核、总耗时，以及块数/正文 UTF-8 字节数/词项数。小规模每请求构建是可观测取舍，无预设延迟目标。
+
+BM25 评测默认 dev，复用第 16 步 gold 原文和位置匹配规则，单独目录保存原始候选、分数、配置/语料/代码摘要与成本。正式指标仍要求全部所选题人工复核；`--draft-diagnostics` 仅允许 dev 草稿产生原始候选与成本，效果指标为 null、状态标为 draft_diagnostics，绝不替代人工复核。仅做检索，拒答、引用和生成效果不适用。保留旧向量产物；真实向量未运行时不宣称两路效果比较。独立脚本不调用 Embedding/Chat。

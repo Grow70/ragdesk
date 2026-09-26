@@ -7,7 +7,7 @@ from sqlalchemy import Select, func, null, select
 from sqlalchemy.orm import Session
 
 from app.chunking import ChunkDraft
-from app.models import Chunk, Document, DocumentBuild, KnowledgeBase
+from app.models import Chunk, Document, DocumentBuild, KBMember, KnowledgeBase
 
 
 def searchable_chunks_stmt(kb_id: UUID, model_config_id: str) -> Select[tuple[Chunk]]:
@@ -109,3 +109,42 @@ def candidate_totals(
         ).where(Chunk.build_id == build_id)
     ).one()
     return count, low, high, missing
+
+
+def lexical_chunks_stmt(user_id: UUID, kb_id: UUID):
+    """Authorized active text only; never load vectors to build a lexical corpus."""
+    return (
+        select(
+            Chunk.id.label("chunk_id"),
+            Chunk.build_id,
+            Chunk.ordinal,
+            Chunk.body.label("text"),
+            Chunk.source_spans,
+            Chunk.page_number,
+            Chunk.heading_path,
+            Chunk.start_line,
+            Chunk.end_line,
+            Document.id.label("document_id"),
+            Document.kb_id.label("knowledge_base_id"),
+            Document.file_name.label("document_name"),
+            Document.file_sha256,
+            DocumentBuild.parser_config,
+            DocumentBuild.chunking_config,
+            DocumentBuild.model_config_id,
+            DocumentBuild.embedding_provider,
+            DocumentBuild.embedding_model,
+            DocumentBuild.embedding_dimensions,
+            DocumentBuild.config_version,
+        )
+        .join(DocumentBuild, Chunk.build_id == DocumentBuild.id)
+        .join(Document, DocumentBuild.document_id == Document.id)
+        .join(KBMember, KBMember.kb_id == Document.kb_id)
+        .where(
+            KBMember.user_id == user_id,
+            Document.kb_id == kb_id,
+            Document.deleted_at.is_(None),
+            Document.active_build_id == DocumentBuild.id,
+            DocumentBuild.status == "ready",
+        )
+        .order_by(Chunk.id)
+    )

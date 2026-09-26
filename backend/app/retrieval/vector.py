@@ -20,8 +20,9 @@ class RetrievedChunk:
     text: str
     page_number: int | None
     heading_path: list[str] | None
-    distance: float
+    distance: float | None
     rank: int
+    bm25_score: float | None = None
 
 
 def has_candidates(session: Session, kb_id: UUID, model_config_id: str) -> bool:
