@@ -270,3 +270,16 @@ uv run --locked pytest -q tests/test_rrf.py tests/test_hybrid.py tests/test_rrf_
 ```
 
 真实比较需已复核 dev、兼容真实索引、登录令牌和API配置，再显式传入 `--run-real --mapping <映射文件>`。离线 `--fake-diagnostics` 只验证三路流程，不能说明RRF是否提升了语义检索。每次保存独立报告，复用同次候选作公平对照，原向量和BM25产物保留。配置、手算例子、降级规则及完整命令见 [RRF 说明](docs/rrf.md)。
+
+## 可关闭的重排器
+
+第 19 步新增 `app.services.reranked.search_configured`：按 `RERANK_ENABLED` 开关，对已授权 RRF 前 20 个候选重排后取 5 个。默认关闭；暂时不可用时回退 RRF 顺序并记录降级，权限失败和伪造候选直接报错。Cohere `rerank-v3.5` 适配器通过离线 HTTP 契约检查，**真实接口与效果尚未验证**，现有问答未切换策略。
+
+在 `backend` 目录执行：
+
+```powershell
+uv run --locked python -m app.evaluate_rerank
+uv run --locked pytest -q tests/test_reranker.py tests/test_reranked.py tests/test_rerank_evaluation.py
+```
+
+默认评测仅预检；真实比较需人工复核 dev、真实索引和 API 配置后显式 `--run-real`。本次 15 题 fake 诊断不产生正式效果数字。配置、单次真实验证命令、配对评测与默认关闭理由见 [重排及实验记录](docs/rerank.md)。

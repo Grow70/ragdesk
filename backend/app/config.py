@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, extra="ignore", frozen=True)
 
     database_url: SecretStr
+    rerank_enabled: bool = False
+    cohere_api_key: SecretStr | None = None
+    rerank_model: Literal["rerank-v3.5"] = "rerank-v3.5"
+    rerank_connect_timeout_seconds: float = Field(
+        default=3.0, gt=0, allow_inf_nan=False
+    )
+    rerank_read_timeout_seconds: float = Field(default=10.0, gt=0, allow_inf_nan=False)
     openai_api_key: SecretStr | None = None
     chat_model: str = "gpt-4.1-mini-2025-04-14"
     embedding_model: str = "text-embedding-3-small"
