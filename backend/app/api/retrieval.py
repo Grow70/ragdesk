@@ -50,16 +50,7 @@ def install_retrieval_error_handler(app: FastAPI) -> None:
         return error_response(request, exc.status, exc.code, exc.message)
 
 
-@router.post("/search", response_model=SearchResponse)
-def search(
-    kb_id: UUID,
-    payload: SearchRequest,
-    request: Request,
-    user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[Session, Depends(get_session)],
-) -> SearchResponse:
-    user_id = user.id
-    session.close()  # Release authentication's transaction before embedding.
+def retrieval_runtime(request: Request):
     settings = request.app.state.settings
     if settings.retrieval_embedding_backend == "fake":
         default_profile = EmbeddingProfile.fake(
@@ -90,6 +81,20 @@ def search(
         )
 
     factory = getattr(request.app.state, "retrieval_client_factory", default_client)
+    return profile, factory
+
+
+@router.post("/search", response_model=SearchResponse)
+def search(
+    kb_id: UUID,
+    payload: SearchRequest,
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+) -> SearchResponse:
+    user_id = user.id
+    session.close()  # Release authentication's transaction before embedding.
+    profile, factory = retrieval_runtime(request)
     items = service.search(
         sessionmaker(request.app.state.engine),
         user_id,

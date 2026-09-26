@@ -198,12 +198,16 @@ class OpenAIChatClient(_OpenAIClient):
         *,
         api_key: str,
         model: str = "gpt-4.1-mini-2025-04-14",
+        max_completion_tokens: int = 1024,
         **kwargs,
     ):
         super().__init__(api_key=api_key, **kwargs)
         if not model.strip():
             raise ValueError("chat model must not be blank")
+        if type(max_completion_tokens) is not int or max_completion_tokens <= 0:
+            raise ValueError("max_completion_tokens must be a positive integer")
         self.model = model
+        self.max_completion_tokens = max_completion_tokens
 
     def generate(self, messages: list[dict], response_schema: dict) -> ChatResult:
         if not messages or any(
@@ -228,6 +232,7 @@ class OpenAIChatClient(_OpenAIClient):
             {
                 "model": self.model,
                 "messages": messages,
+                "max_completion_tokens": self.max_completion_tokens,
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {

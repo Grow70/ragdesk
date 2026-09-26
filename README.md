@@ -40,7 +40,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/auth/me -Headers @{ Authorization =
 
 ## 知识库与成员权限
 
-已登录用户可创建知识库，并自动成为该库管理员。`GET /knowledge-bases` 只返回当前用户加入的库；`GET /knowledge-bases/{kb_id}` 要求成员资格。管理员可通过 `GET /knowledge-bases/{kb_id}/members` 查看成员，使用 `PUT /knowledge-bases/{kb_id}/members/{user_id}` 配合 `{"role":"member"}` 或 `{"role":"admin"}` 添加或调整已有用户，使用 `DELETE` 同路径移除成员。移除或降级最后一位管理员会返回 `409`。普通成员可读取知识库及其文档，上传仅限管理员；文档删除和问答尚无接口。
+已登录用户可创建知识库，并自动成为该库管理员。`GET /knowledge-bases` 只返回当前用户加入的库；`GET /knowledge-bases/{kb_id}` 要求成员资格。管理员可通过 `GET /knowledge-bases/{kb_id}/members` 查看成员，使用 `PUT /knowledge-bases/{kb_id}/members/{user_id}` 配合 `{"role":"member"}` 或 `{"role":"admin"}` 添加或调整已有用户，使用 `DELETE` 同路径移除成员。移除或降级最后一位管理员会返回 `409`。普通成员可读取知识库及其文档，上传仅限管理员；文档删除尚无接口；问答及来源查看见下文。
 
 在上面的登录示例取得 `$session` 后，可创建并查看知识库：
 
@@ -166,6 +166,38 @@ uv run --locked pytest -q tests/test_retrieval.py -k "not real_semantic"
 ```
 
 真实语义检查是**独立的显式操作**：在 `backend` 目录设置 `TEST_POSTGRES_ADMIN_URL`、`OPENAI_API_KEY` 及 `$env:RUN_REAL_RETRIEVAL = "1"`，运行 `uv run --locked pytest -q -s tests/test_retrieval.py -k real_semantic`。它将两段短文本和一个问题发送到 OpenAI Embeddings API，预计两次请求（此检查限制每次最多一次尝试），会产生少量费用。测试打印两条距离并检查报销文档排在运维文档前；结果需单独记录，不能用 fake 测试结果代替。
+
+## 固定流程 RAG 问答
+
+第 15 步提供 `POST /knowledge-bases/{kb_id}/answers`。请求为 `{"question":"报销期限是多少？","top_k":5}`；问题最多 4000 字符，`top_k` 默认 5、允许 1～20。流程复用成员授权和向量检索，为实际装入上下文的片段分配本次请求的 `c1`、`c2` 等编号，调用 Chat 后校验结构和引用。响应包含 `status`、`answer`、`citations`、`request_id`；引用的文档名、页码、标题、行号和原文均由后端读取，模型只提交引用编号。
+
+无可用证据时直接返回 `insufficient_evidence`，不调用 Chat。有片段但不足以回答时允许 `insufficient_evidence` 或 `needs_clarification`，引用为空。冲突应在回答中呈现各方说法和各方引用。模型返回假引用、成功回答缺少引用、非法 JSON/schema 时响应 `502`；模型超时为 `504`。生成期间资料被删除、内容改变或构建切换则响应 `409 EVIDENCE_CHANGED`；权限撤销为 `404`。
+
+真实问答使用进程环境中的 `OPENAI_API_KEY`、`CHAT_MODEL` 和现有 Embedding 配置。使用以 `--embedding-backend openai` 建成的知识库，并在启动 API 前设置 `$env:RETRIEVAL_EMBEDDING_BACKEND = "openai"`；查询和文档的模型配置必须一致。已有 fake 索引不因设置变化自动变成真实索引。没有密钥时不会自动用 fake Chat 生成回答；离线验收通过测试显式注入 fake。
+
+在已启动 API、已登录取得 `$session` 并选定 `$kb` 后，PowerShell 调用示例：
+
+```powershell
+$headers = @{ Authorization = "Bearer $($session.access_token)" }
+$body = @{ question = "报销期限是多少？"; top_k = 5 } | ConvertTo-Json
+$result = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/knowledge-bases/$($kb.id)/answers" -Headers $headers -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+$result | ConvertTo-Json -Depth 8
+if ($result.citations.Count -gt 0) {
+    Invoke-RestMethod -Uri "http://127.0.0.1:8000$($result.citations[0].source_path)" -Headers $headers
+}
+```
+
+来源接口为 `GET /knowledge-bases/{kb_id}/sources/{document_id}/{build_id}/{chunk_id}`。每次访问都重新校验当前成员资格、完整 ID 链、文档未删除及当前 ready 构建；旧构建、删除资料、跨库或错误 ID 均不可读取。
+
+上下文预算默认 16384 个保守计量单位：系统提示、问题、完整消息 JSON 和 schema 按 UTF-8 字节计算，另预留 1024 token 输出与 1024 消息封装余量。剩余空间只装完整证据块，放不下时省略并告诉模型范围不完整，不截断片段尾部的例外条款。这不是精确 token 计数；`ContextBudget` 可由服务调用方显式配置，切换模型需要重新核对窗口。实际 Chat 请求带 `max_completion_tokens` 输出上限。
+
+在 `backend` 目录、按下文设置测试服务器后运行离线验收；测试创建并删除独立数据库，不调用真实模型：
+
+```powershell
+uv run --locked pytest -q tests/test_answers.py
+```
+
+**引用 ID 合法只验证来源，不能自动证明答案受到证据支持。** 系统提示要求只依据资料，并把资料内的恶意指令当作内容。fake 测试验证消息隔离、冲突响应透传、引用校验和失败分支；真实模型的事实有据率、冲突识别和抗提示注入效果仍需独立评测，本步没有这些效果结论。
 
 ## 数据库结构
 

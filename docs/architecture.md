@@ -42,26 +42,28 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[成员选择一个知识库并提问] --> B[API 识别用户并校验该库成员权限]
-    B --> C[Service 校验问题与单库选择]
-    C --> D{问题需澄清?}
-    D -- 是 --> E[AnswerResult needs_clarification]
-    D -- 否 --> F[生成查询向量]
-    F --> G[Retrieval 仅查询当前库有效 build 的片段]
-    G --> H{证据足够?}
-    H -- 否 --> I[AnswerResult insufficient_evidence]
-    H -- 是 --> J[LLM 基于证据生成草稿]
-    J --> K[Service 校验引用与当前权限及文档有效性]
-    K --> L{答案和引用有效?}
-    L -- 是 --> M[AnswerResult answered]
-    L -- 证据不支持草稿 --> I
-    F --> T[模型或数据库技术故障]
-    G --> T
-    J --> T
-    T --> U[HTTP 错误响应 含 request_id]
+    A[成员选择知识库并提问] --> B[验证身份与成员资格]
+    B --> C[生成查询向量并检索当前有效构建]
+    C --> D[按预算装入完整证据并分配引用编号]
+    D --> E{有可用证据?}
+    E -- 否 --> F[insufficient_evidence 不调用 Chat]
+    E -- 是 --> G[Chat 仅依据证据生成结构化草稿]
+    G --> H[校验 schema 和引用编号]
+    H --> I[复核成员资格与所有已提供证据]
+    I --> J[返回 answered 或不足或需澄清]
+    C -- 技术故障 --> K[HTTP 错误响应]
+    G -- 技术故障 --> K
+    H -- 无效结构或引用 --> K
+    I -- 权限或证据变化 --> K
 ```
 
 检索查询必须在数据库层同时限定 `knowledge_base_id`、未删除文档及 `document.active_build_id = chunk.build_id`。获取片段后，service 只把当前库授权证据传给模型；返回前复核引用仍指向有效文档。明确无证据或草稿无证据支持时返回 `insufficient_evidence`；问题缺少必要限定条件时返回 `needs_clarification`。模型超时、嵌入失败、数据库不可用或校验器自身故障使用错误响应，不能伪装为资料不足。基础范围的“证据足够”判定规则和阈值待实验确定，不能仅凭模型自称有引用就通过。
+
+第 15 步采用固定流程：认证与成员校验 → 现有向量检索 → 按排名装入完整证据块 → 一次 Chat 生成 → 结构与引用校验 → 再校验当前权限和证据有效性。实际装入上下文的候选分配本次请求的 `c1`、`c2` 等编号；模型只输出 `status`、`answer`、`citation_ids`，文档元数据和原文由后端补齐。`answered` 必须有非空合法引用；缺失、未知、重复引用或不合 schema 的返回为 `502`，模型超时为 `504`。空证据直接返回 `insufficient_evidence`，不调用 Chat；有片段但不能回答时由模型明确不足或请求澄清。冲突须列出各方说法与引用，不擅自选择统一结论。
+
+预算由 `ContextBudget` 控制，默认总额度 16384、输出预留 1024 token、消息封装安全余量 1024；以完整消息 JSON 与 schema 的 UTF-8 字节数保守计量输入，不声称是精确 token 计数。系统提示、问题、schema 先占预算，剩余空间按排名装入完整块，不截断例外条款；省略块时向模型标明范围不完整，全部放不下返回资料不足。Chat 请求显式设置 `max_completion_tokens=1024`。这些是应用调用上限，更换模型须复核窗口与计量方式。
+
+系统提示要求只依据证据；资料内的命令和伪造角色均为不可信资料。证据 JSON 只放用户消息，不插入系统指令。**引用 ID 合法只验证来源，不能自动证明答案受证据支持**；冲突识别与抵抗提示注入的真实效果须独立实验。返回前重新查询已提供证据，删除、构建切换或内容变化返回 `409 EVIDENCE_CHANGED`，成员撤销返回 `404`。`GET /knowledge-bases/{kb_id}/sources/{document_id}/{build_id}/{chunk_id}` 复用成员授权、校验完整 ID 链、当前 ready 构建和删除状态，返回真实正文、页码、标题、行号。未知或不可见来源统一 `404`。
 
 ## 4. 分层职责与依赖方向
 
@@ -147,7 +149,7 @@ flowchart TD
 | 文档 | `POST /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents/{document_id}`, `GET /knowledge-bases/{kb_id}/documents/{document_id}/raw`, `DELETE /knowledge-bases/{kb_id}/documents/{document_id}` | 上传、删除限管理员；读取需成员 | 上传、分页列表与状态、详情、受保护的原文件下载；重复上传返回已有 ID。删除留待后续步骤。 |
 | 来源 | `GET /knowledge-bases/{kb_id}/sources/{document_id}/{build_id}/{chunk_id}` | 成员或管理员 | 返回授权片段及位置；删除或无权时不返回内容。 |
 | 检索 | `POST /knowledge-bases/{kb_id}/search` | 成员或管理员 | 第 14 步为调试接口；请求 `{ "query": "...", "top_k": 5 }`，`top_k` 范围 1～20；响应含 `distance_metric: "cosine_distance"`、`items: list[RetrievedChunk]` 和 `request_id`。先检查当前成员资格，SQL 同时限制单库、未删除文档、ready 的当前 active build、兼容的完整模型配置 ID 与非空向量；无候选返回空数组。按距离升序做精确检索，不设置近似向量索引。查询 Embedding 默认用 OpenAI；只有显式设置 `RETRIEVAL_EMBEDDING_BACKEND=fake` 才查询 fake 索引，无密钥不回退 fake。模型或数据库故障返回错误响应。 |
-| 问答 | `POST /knowledge-bases/{kb_id}/answers` | 成员或管理员 | 请求 `{ "question": "..." }`，返回 `AnswerResult`。 |
+| 问答 | `POST /knowledge-bases/{kb_id}/answers` | 成员或管理员 | 第 15 步启用，请求 `{ "question": "...", "top_k": 5 }`，返回 `AnswerResult`；`top_k` 为 1～20，问题非空且最多 4000 字符。 |
 | 任务查询 | `GET /knowledge-bases/{kb_id}/tasks/{task_id}` | 管理员 | F2 启用；返回任务、文档、构建状态与安全的失败原因。基础阶段可保留接口契约，未启用时不假装后台任务存在。 |
 
 第 14 步调试检索请求示例：`POST /knowledge-bases/{kb_id}/search`，请求体 `{ "query": "差旅报销期限", "top_k": 5 }`。响应形状如下；UUID 和距离仅为示意值，不代表真实检索运行结果：
