@@ -230,3 +230,16 @@ uv run --locked ruff format --check .
 ```
 
 缺少必需配置时，应用启动会指出缺少或无效的变量名，不输出变量值。验证结束后，在仓库根目录运行 `docker compose down` 可停止开发数据库，数据卷会保留。
+
+## 向量检索基线评测
+
+第 16 步评测脚本默认选择 dev 并只做预检，在 `backend` 目录执行：
+
+```powershell
+uv run --locked python -m app.evaluate
+uv run --locked pytest -q tests/test_evaluation.py tests/test_evaluation_runtime.py
+```
+
+每次保存 `results.jsonl`、`summary.json`、`report.md`、`manifest.json` 和题目原文到独立 `artifacts/eval/` 目录。当前 30 条样本全部为 draft，预检会退出 2 并记录 `UNREVIEWED_SAMPLES`，效果值为 null；这不构成真实向量检索或 RAG 效果基线。
+
+完成人工复核、真实模型入库、库映射和环境配置后，使用 `--run-real --mapping <映射文件>` 显式运行真实评测。具体命令、分母、严格原文/位置匹配、模型费用上界和人工审核要求见 [评测说明](docs/evaluation.md)。test 需显式 `--split test` 并通过冻结摘要校验，不能用于反复调参。数据库测试使用 fake，不发真实模型请求；没有测试库配置时集成项跳过。

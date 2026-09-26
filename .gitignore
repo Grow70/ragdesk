@@ -9,3 +9,5 @@
 **/*.db
 **/*.sqlite*
 **/*.log
+# Local evaluation raw outputs and snapshots (may contain private source text).
+/artifacts/

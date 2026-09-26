@@ -3,7 +3,8 @@
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from time import perf_counter
 from typing import Literal
 from uuid import UUID
 
@@ -174,11 +175,21 @@ def answer_question(
     chat_factory: Callable[[], ChatClient],
     request_id: str,
     budget: ContextBudget = ContextBudget(),
+    trace: dict | None = None,
 ) -> AnswerResult:
-    chunks = search(
-        factory, user_id, kb_id, question, top_k, profile, embedding_factory
-    )
+    retrieval_start = perf_counter()
+    try:
+        chunks = search(
+            factory, user_id, kb_id, question, top_k, profile, embedding_factory
+        )
+    finally:
+        if trace is not None:
+            trace["retrieval_ms"] = (perf_counter() - retrieval_start) * 1000
+    if trace is not None:
+        trace["retrieved_chunks"] = [asdict(chunk) for chunk in chunks]
     messages, evidence = build_context(question, chunks, budget)
+    if trace is not None:
+        trace["evidence"] = {key: asdict(chunk) for key, chunk in evidence.items()}
     if not evidence:
         return AnswerResult(
             "insufficient_evidence",
@@ -188,9 +199,10 @@ def answer_question(
         )
     chat = chat_factory()
     try:
-        draft = _validate_draft(
-            chat.generate(messages, ANSWER_SCHEMA).content, evidence
-        )
+        generated = chat.generate(messages, ANSWER_SCHEMA)
+        if trace is not None:
+            trace["raw_chat"] = asdict(generated)
+        draft = _validate_draft(generated.content, evidence)
     except ModelError as exc:
         raise AnswerError(
             exc.code, 504 if exc.code == "MODEL_TIMEOUT" else 502, "Chat service failed"
