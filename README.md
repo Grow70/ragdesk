@@ -322,3 +322,11 @@ uv run --locked pytest -q tests/test_document_lifecycle.py
 ```
 
 接口、错误码、并发顺序、完整 PowerShell 演示与验收见 [文档生命周期说明](docs/document_lifecycle.md)。
+
+## 请求级 trace（第 22 步）
+
+先执行 `uv run --locked alembic upgrade head`，再重启 API。每次问答保存精简 trace 到现有 PostgreSQL，不需要额外监控平台。用回答或错误响应的 request_id 查看 `GET /knowledge-bases/{kb_id}/traces/{request_id}`：仅当前仍在库内的请求本人或管理员可读。
+
+trace 包含策略、阶段/总耗时、候选及引用 ID、模型计数/usage 和失败类型；默认不保存问题、提示词、答案或原文。成本只有在配置有效的 `TRACE_PRICES` 且 usage 完整时才估算，否则为 null。`X-Trace-Status=unavailable` 明确表示本次未能保存。
+
+PowerShell 命令、价格格式、事件结构及一次实际离线请求的耗时分析见 [trace 说明](docs/traces.md)。验收：在 backend 和已配置的临时数据库环境执行 `uv run --locked pytest -q tests/test_traces.py`。

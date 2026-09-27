@@ -15,6 +15,7 @@ from app.llm.openai import OpenAIChatClient
 from app.models import User
 from app.repositories.sources import Source
 from app.services import answers as service
+from app.services import traces
 
 router = APIRouter(prefix="/knowledge-bases/{kb_id}", tags=["answers"])
 
@@ -36,15 +37,24 @@ def install_answer_error_handler(app: FastAPI):
         return error_response(request, exc.status, exc.code, exc.message)
 
 
+def traced_user(
+    request: Request, user: Annotated[User, Depends(get_current_user)]
+) -> User:
+    request.state.answer_trace.user_id = user.id
+    return user
+
+
 @router.post("/answers", response_model=service.AnswerResult)
 def answer(
     kb_id: UUID,
     payload: AnswerRequest,
     request: Request,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(traced_user)],
     session: Annotated[Session, Depends(get_session)],
 ):
     user_id = user.id
+    trace = request.state.answer_trace
+    trace.preparation_ms = (trace.clock() - trace.start) * 1000
     session.close()
     profile, embedding_factory = retrieval_runtime(request)
     settings = request.app.state.settings
@@ -71,10 +81,13 @@ def answer(
         payload.question,
         payload.top_k,
         profile,
-        embedding_factory,
-        getattr(request.app.state, "answer_chat_factory", default_chat),
+        trace.wrap_factory("embedding", embedding_factory),
+        trace.wrap_factory(
+            "chat", getattr(request.app.state, "answer_chat_factory", default_chat)
+        ),
         request.state.request_id,
         budget,
+        request_trace=trace,
     )
 
 
@@ -101,3 +114,13 @@ def source(
         chunk_id,
     )
     return SourceResponse(**asdict(value), request_id=request.state.request_id)
+
+
+@router.get("/traces/{trace_id}")
+def get_trace(
+    kb_id: UUID,
+    trace_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+):
+    return traces.read(session, user.id, kb_id, trace_id.hex)

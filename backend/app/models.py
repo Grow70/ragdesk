@@ -270,3 +270,19 @@ class IngestionJob(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AnswerTrace(Base):
+    __tablename__ = "answer_traces"
+    __table_args__ = (
+        Index("ix_answer_traces_kb_created", "knowledge_base_id", "created_at"),
+    )
+
+    request_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    # Snapshots also cover unknown/unauthorized IDs; intentionally no entity FKs.
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    knowledge_base_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)

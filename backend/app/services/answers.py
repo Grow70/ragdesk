@@ -3,6 +3,7 @@
 import json
 import re
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from time import perf_counter
 from typing import Literal
@@ -180,21 +181,33 @@ def answer_question(
     request_id: str,
     budget: ContextBudget = ContextBudget(),
     trace: dict | None = None,
+    request_trace=None,
 ) -> AnswerResult:
+    def stage(name):
+        return request_trace.stage(name) if request_trace is not None else nullcontext()
+
     retrieval_start = perf_counter()
     try:
-        chunks = search(
-            factory, user_id, kb_id, question, top_k, profile, embedding_factory
-        )
+        with stage("retrieval"):
+            chunks = search(
+                factory, user_id, kb_id, question, top_k, profile, embedding_factory
+            )
     finally:
         if trace is not None:
             trace["retrieval_ms"] = (perf_counter() - retrieval_start) * 1000
     if trace is not None:
         trace["retrieved_chunks"] = [asdict(chunk) for chunk in chunks]
-    messages, evidence = build_context(question, chunks, budget)
+    if request_trace is not None:
+        request_trace.candidates_from(chunks)
+    with stage("context"):
+        messages, evidence = build_context(question, chunks, budget)
+    if request_trace is not None:
+        request_trace.evidence_from(evidence)
     if trace is not None:
         trace["evidence"] = {key: asdict(chunk) for key, chunk in evidence.items()}
     if not evidence:
+        if request_trace is not None:
+            request_trace.outcome = "insufficient_evidence"
         return AnswerResult(
             "insufficient_evidence",
             "当前可用资料不足，无法回答；请补充资料或缩小问题范围。",
@@ -203,10 +216,12 @@ def answer_question(
         )
     chat = chat_factory()
     try:
-        generated = chat.generate(messages, ANSWER_SCHEMA)
+        with stage("chat"):
+            generated = chat.generate(messages, ANSWER_SCHEMA)
         if trace is not None:
             trace["raw_chat"] = asdict(generated)
-        draft = _validate_draft(generated.content, evidence)
+        with stage("validation"):
+            draft = _validate_draft(generated.content, evidence)
     except ModelError as exc:
         raise AnswerError(
             exc.code, 504 if exc.code == "MODEL_TIMEOUT" else 502, "Chat service failed"
@@ -216,24 +231,25 @@ def answer_question(
         if close is not None:
             close()
     # Revalidate every supplied source: even an uncited source may affect the answer.
-    with factory() as session:
-        require_kb_member(session, user_id, kb_id)
-        sources = current_sources(
-            session, kb_id, [chunk.chunk_id for chunk in evidence.values()]
-        )
-        for chunk in evidence.values():
-            source = sources.get(chunk.chunk_id)
-            if (
-                source is None
-                or source.build_id != chunk.build_id
-                or source.document_id != chunk.document_id
-                or source.snippet != chunk.text
-            ):
-                raise AnswerError(
-                    "EVIDENCE_CHANGED",
-                    409,
-                    "Evidence changed; submit the question again",
-                )
+    with stage("source_validation"):
+        with factory() as session:
+            require_kb_member(session, user_id, kb_id)
+            sources = current_sources(
+                session, kb_id, [chunk.chunk_id for chunk in evidence.values()]
+            )
+            for chunk in evidence.values():
+                source = sources.get(chunk.chunk_id)
+                if (
+                    source is None
+                    or source.build_id != chunk.build_id
+                    or source.document_id != chunk.document_id
+                    or source.snippet != chunk.text
+                ):
+                    raise AnswerError(
+                        "EVIDENCE_CHANGED",
+                        409,
+                        "Evidence changed; submit the question again",
+                    )
     citations = []
     for citation_id in draft["citation_ids"]:
         source = sources[evidence[citation_id].chunk_id]
@@ -252,4 +268,15 @@ def answer_question(
                 source_path=f"/knowledge-bases/{kb_id}/sources/{source.document_id}/{source.build_id}/{source.chunk_id}",
             )
         )
+    if request_trace is not None:
+        request_trace.outcome = draft["status"]
+        request_trace.citations = [
+            {
+                "citation_id": c.citation_id,
+                "chunk_id": str(c.chunk_id),
+                "document_id": str(c.document_id),
+                "build_id": str(c.build_id),
+            }
+            for c in citations
+        ]
     return AnswerResult(draft["status"], draft["answer"].strip(), citations, request_id)

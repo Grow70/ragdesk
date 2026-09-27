@@ -185,3 +185,15 @@
 - 工程检查：首次 ruff 发现长行/导入间距，格式化整理后最终 `ruff check .`、`ruff format --check .`（86 文件）、`uv lock --check`、`git diff --check` 全通过。无新增依赖或数据库迁移，沿用锁文件；全量包括既有迁移检查及独立测试库回退。核对 PostgreSQL 17 咨询锁和 Python 3.12 dir_fd/unlink 官方文档，链接与 PowerShell 操作见 docs/document_lifecycle.md；README、架构及任务状态说明同步更新。原始验证输出保留于 Git 忽略的 artifacts/validation/step21/。
 - 遗留问题：数据库与文件系统不共享事务，提交后进程退出/文件系统失败可能留下私有原文件；没有自动垃圾回收，历史块保留但不进入检索。模型/维度变更需单独设计全库迁移，不在单文档重建中直接切换；外部模型调用无法撤回，仍可能重复计费，不承诺 exactly-once。依旧只部署单 worker，不扩展文件版本管理。
 - 下一步入口：等待新的编号任务。继续遵循本步的软删除、原子发布、模型兼容和旧引用失效契约；不自动实现后续功能。本步测试库由 fixture 删除，专用测试容器随后停止并自动移除；未操作已有用户数据、未 push 或部署。
+
+## 第 22 步：请求级 trace
+
+- 已完成：先更新契约，在 6 个主要实现文件内增加 answer_traces 模型及 Alembic 0006 迁移、精简 trace 服务、问答/模型包装、HTTP 生命周期和受保护查看接口。每次问答使用服务器 request_id，成功、拒答、澄清、超时、无权限、参数错误和未处理异常均尝试保存。保留用户/知识库 ID 快照、策略、候选与引用 ID、阶段/模型/整体耗时、调用次数、usage 和安全错误码。事件以 event_id/parent_event_id/kind 表示阶段、模型和预留工具事件；本步不实现 Agent 或额外监控平台。
+- 隐私与权限：字段白名单不保存问题、答案、提示词、文档正文/文件名、向量、密钥、请求头或供应商原文。既有显式离线评测的完整原始输出与请求 trace 分离。GET /knowledge-bases/{kb_id}/traces/{request_id} 每次查当前成员资格，只允许请求本人或该库管理员；其他成员、跨库、未知或撤权统一 404。未认证身份记 null，用户身份不取自请求体。
+- 用量与成本：原向量策略保持不变，重排明确 not_run；支持重排计量包装并以 fake 验证，未自动接入问答。真实适配器有完整 usage 才标 reported，重试只收到末次 usage 时保留 partial 明细，缺少计数/用量为 null；fake 记 simulated，不把零 token 当真实免费。环境 TRACE_PRICES 要求精确模型身份、币种、有效日期及有限非负单价，使用 Decimal 按 token/search_units 估算并保存价格及日期快照；缺价、过期、未知使用量或混合币种均不生成完整费用。没有配置任何默认真实供应商价格。
+- 定向验证：首轮 trace+问答 **32 passed, 1 warning**；补充未知调用数、未处理异常和多币种边界后 trace 单独 **22 passed, 1 warning**，随后加入非法 JSON 价格配置验证。检查跨用户/库/撤权、内容白名单、失败留痕、写库失败仍保持原响应并标 unavailable、计数/价格语义、事件父子关系及独立测试库迁移回退再升级。无真实模型或收费 API 调用。
+- 实际示例：TestClient、JWT、临时 PostgreSQL 与显式 fake Embedding/Chat 实际执行一次问答，并通过受保护接口读回已保存 trace。request_id=4aaffc50b2ae455f9966f7d9d36d8d1b，总耗时 57.889 ms；请求准备 33.887 ms，检索含 Embedding 15.154 ms，Embedding 0.035 ms，检索非模型 15.118 ms，Chat 模型 1.521 ms，所有模型 1.557 ms，来源复核 5.568 ms。检索非模型部分比模型更长，但总耗时最大段是请求准备，不能称模型瓶颈；n=1 fake 样本不外推真实 API 性能。原始脱敏 JSON 及验证日志保存于忽略目录 artifacts/validation/step22/；分析见 docs/traces.md。
+- 工程检查：无新增依赖，沿用 uv.lock；核对 SQLAlchemy 事务、Python perf_counter 和 Decimal 官方文档，链接见 docs/traces.md。README、架构、环境示例和 trace 配置说明已同步；首次静态整理后 ruff check、ruff format --check（89 文件）、uv lock --check、git diff --check 通过。
+- 遗留边界：trace 在响应生成后、独立短事务保存；total_ms 不包含 trace 写库和网络发送。写库失败不会改变问答结果，X-Trace-Status 明确 unavailable；强制退出前未保存的请求可能丢失。尚未实现自动保留期清理，数据会随请求累积。未运行真实模型，不给出真实调用费用或延迟结论；历史偶发认证 401 仍为独立未定位问题。
+- 全量验证与清理：在专用 ragdesk-step22-pg 和随机临时库全量运行 **231 passed, 2 skipped, 1 warning（84.42 秒）**，新增 trace 23 项全通过；两项跳过为未配置的真实模型验证，警告为既有 TestClient 弃用提示。本次未复现历史偶发 401，未修改认证。迁移仅在临时库升级/回退，已有用户数据未操作。随机库由 fixture 清理，专用容器在本步结束时停止并自动移除；未 push 或部署。
+- 下一步入口：等待新的编号任务；已有环境先显式升级到 0006 并重启 API，按 docs/traces.md 查看本人的请求或管理员授权范围内的 trace。不自动引入 Agent、监控平台或调整检索策略。

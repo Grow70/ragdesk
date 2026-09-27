@@ -374,3 +374,14 @@ flowchart TD
 - 上传相同文件名但不同内容仍创建另一文档，未提供覆盖原文档接口。历史块不立即物理删除，但所有读取继续限定未删除文档及当前 active build。迁移/分布式 worker/新文件版本管理不在本步范围。
 
 官方依据（本步核对，无新增依赖）：[PostgreSQL 17 咨询锁](https://www.postgresql.org/docs/17/explicit-locking.html#ADVISORY-LOCKS)、[Python os 的 dir_fd 与 unlink](https://docs.python.org/3.12/library/os.html#os.unlink)。事务咨询锁在事务结束释放；文件与数据库不共享原子事务，因此以数据库可见性为删除提交点。
+
+## 第 22 步契约：请求级 trace
+
+- 保持现有向量问答策略，重排在该 HTTP 链路中明确记为 not_run。每个 POST answers 使用服务端生成的 request_id；成功、拒答、超时、权限/参数/技术失败都尝试记录。无法识别的用户为 null，不从请求体或未验证令牌推断身份。
+- 新增 answer_traces：request_id 主键、user_id/knowledge_base_id 标识快照、created_at 和精简 JSONB payload。标识快照不设实体外键，以便记录不存在的库及保留审计身份；未认证 user_id 可空，非法库 ID 为 null。通过 Alembic 显式创建，应用启动不建表。
+- GET /knowledge-bases/{kb_id}/traces/{request_id}：每次重新检查当前库成员资格；只允许请求本人或该库管理员读取。其他成员、跨库、未知 trace 均 404，撤权立即失效。request_id 不是访问凭据；当前不提供公开列表或跨库管理入口。
+- trace 只保存标识、策略、耗时、候选 chunk/document/build ID 与各路排名、上下文引用编号映射、最终引用编号、状态/安全错误码、模型标识/调用数/usage 与价格快照。默认不记录问题、回答、完整提示词、原文、文件名、向量、请求头、密钥、供应商响应体或异常消息。既有显式离线评测 trace 仍独立，不将其 rich payload 直接持久化。
+- 事件结构预留 event_id/parent_event_id/kind(stage/model/tool)/name/offset_ms/duration_ms/status/error_type。本步没有 Agent 工具执行；当前串行事件用父子关系说明嵌套阶段，子阶段不能再与父阶段相加。retrieval 阶段包含 Embedding；model 事件单列模型耗时。总耗时从 HTTP 中间件进入到响应生成，包含认证与框架开销，不含 trace 写库及网络传输。
+- 每个模型角色记录 not_run 或实际执行；调用数统计适配器报告/计数器增量的网络尝试数，另记方法调用数。重试后只收到末次 usage 时记 partial，失败无 usage、缺失数据或 fake 模型记 unknown/simulated，费用总计不得将这些情况填 0。没有调用时 call_count=0 仅表示未调用，usage/cost 为 null。
+- TRACE_PRICES 环境配置按 provider:model 精确匹配，要求币种、as_of、valid_until 和非负有限单价；保存配置日期与匹配的价格快照。仅在请求日期落在有效区间、usage 完整且模型非 fake 时估算；无价、过期、币种不一致或未知 usage 时 total_estimated_cost=null，保留已知部分及原因。不自动查询/猜测实时价格，不把估算当账单。
+- trace 在请求完成后用独立短事务保存，模型调用不持有 trace 数据库事务。写库失败不改变原问答结果，响应 X-Trace-Status=unavailable 并记录 request_id 与安全错误类型；成功为 stored。进程被强制结束前尚未落库的 trace 可能丢失，本步不是持久任务或审计平台。暂不做自动保留期清理或额外监控服务。

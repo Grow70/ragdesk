@@ -1,12 +1,17 @@
 """Request tracing, logging, and consistent HTTP errors."""
 
 import logging
-from uuid import uuid4
+import re
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import sessionmaker
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.services import traces
 
 LOGGER = logging.getLogger("ragdesk")
 
@@ -27,6 +32,7 @@ def error_response(
     message: str,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
+    request.state.trace_error = code
     return JSONResponse(
         status_code=status,
         content={
@@ -38,6 +44,8 @@ def error_response(
 
 
 def install_http_behavior(app: FastAPI) -> None:
+    app.state.trace_settings = traces.load_settings()
+
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         message = exc.detail if isinstance(exc.detail, str) else "Request failed"
@@ -55,6 +63,18 @@ def install_http_behavior(app: FastAPI) -> None:
     async def request_context(request: Request, call_next):
         request_id = uuid4().hex
         request.state.request_id = request_id
+        trace = None
+        if request.method == "POST" and re.fullmatch(
+            r"/knowledge-bases/[^/]+/answers/?", request.url.path
+        ):
+            try:
+                kb_id = UUID(request.url.path.split("/")[2])
+            except ValueError:
+                kb_id = None
+            trace = traces.RequestTrace(
+                request_id, kb_id, app.state.trace_settings.prices
+            )
+            request.state.answer_trace = trace
         try:
             response = await call_next(request)
         except Exception as exc:
@@ -66,6 +86,22 @@ def install_http_behavior(app: FastAPI) -> None:
             response = error_response(
                 request, 500, "INTERNAL_ERROR", "Internal server error"
             )
+        if trace is not None:
+            try:
+                payload = trace.finish(
+                    response.status_code, getattr(request.state, "trace_error", None)
+                )
+                await run_in_threadpool(
+                    traces.persist, sessionmaker(app.state.engine), trace, payload
+                )
+                response.headers["X-Trace-Status"] = "stored"
+            except Exception as exc:
+                LOGGER.error(
+                    "trace_unavailable request_id=%s exception_type=%s",
+                    request_id,
+                    type(exc).__name__,
+                )
+                response.headers["X-Trace-Status"] = "unavailable"
         response.headers["X-Request-ID"] = request_id
         LOGGER.info(
             "request_completed request_id=%s method=%s path=%s status=%s",
