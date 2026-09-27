@@ -121,6 +121,13 @@ def _failure(
     return IngestOutcome(build_id, "failed", count, config_id, error_code=code)
 
 
+def ensure_rebuild_compatible(session, document, profile):
+    if document.active_build_id is not None:
+        active = session.get(DocumentBuild, document.active_build_id)
+        if active is None or active.model_config_id != profile.config_id:
+            raise IngestError("INCOMPATIBLE_REBUILD_CONFIG")
+
+
 def ingest_document(
     factory: sessionmaker[Session],
     document_id: UUID,
@@ -163,6 +170,7 @@ def ingest_document(
                 reused=True,
                 error_code=existing.error_code,
             )
+        ensure_rebuild_compatible(session, document, profile)
         if repo.processing_build_exists(session, document_id):
             raise IngestError("DOCUMENT_BUILD_IN_PROGRESS")
         storage_key = document.storage_key
@@ -257,6 +265,7 @@ def ingest_document(
                 or build.status != "processing"
             ):
                 raise IngestError("BUILD_NOT_PUBLISHABLE")
+            ensure_rebuild_compatible(session, document, profile)
             if repo.active_other_config_ids(session, kb_id, document_id) - {
                 profile.config_id
             }:

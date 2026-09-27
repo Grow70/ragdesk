@@ -35,6 +35,13 @@ class UploadResponse(BaseModel):
     request_id: str
 
 
+class DeleteResponse(BaseModel):
+    document_id: UUID
+    status: Literal["deleted"]
+    cleanup_status: Literal["removed", "missing", "blocked", "pending"]
+    request_id: str
+
+
 class JobResponse(BaseModel):
     job_id: UUID
     document_id: UUID
@@ -83,6 +90,23 @@ def _document_response(
 
 
 def install_document_error_handler(app: FastAPI) -> None:
+    @app.exception_handler(jobs.IngestError)
+    async def ingestion_error(request: Request, exc: jobs.IngestError):
+        if exc.code == "INCOMPATIBLE_REBUILD_CONFIG":
+            return error_response(
+                request,
+                409,
+                exc.code,
+                "Rebuild requires the active embedding configuration",
+            )
+        if exc.code == "INVALID_EMBEDDING_CONFIG":
+            return error_response(
+                request, 503, exc.code, "Invalid embedding configuration"
+            )
+        return error_response(
+            request, 500, "INGESTION_ERROR", "Ingestion request failed"
+        )
+
     @app.exception_handler(service.DocumentError)
     async def document_error(request: Request, exc: service.DocumentError):
         return error_response(request, exc.status, exc.code, exc.message)
@@ -118,6 +142,7 @@ def _accepted(kb_id, document_id, job, request):
     )
 
 
+@router.post("/{document_id}/rebuild", status_code=202, response_model=UploadResponse)
 @router.post(
     "/{document_id}/ingestions", status_code=202, response_model=UploadResponse
 )
@@ -216,4 +241,27 @@ def get_original(
         media_type="application/octet-stream",
         filename=document.file_name,
         headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.delete("/{document_id}", response_model=DeleteResponse)
+def delete_document(
+    kb_id: UUID,
+    document_id: UUID,
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+) -> DeleteResponse:
+    cleanup = service.delete_document(
+        session,
+        user.id,
+        kb_id,
+        document_id,
+        request.app.state.settings.upload_storage_dir,
+    )
+    return DeleteResponse(
+        document_id=document_id,
+        status="deleted",
+        cleanup_status=cleanup,
+        request_id=request.state.request_id,
     )

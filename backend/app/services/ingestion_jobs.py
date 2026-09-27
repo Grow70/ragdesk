@@ -10,25 +10,40 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, or_, select, text
 
 from app.models import Document, DocumentBuild, IngestionJob
-from app.services.ingest import EmbeddingProfile, IngestError, ingest_document
+from app.services.ingest import (
+    EmbeddingProfile,
+    IngestError,
+    ensure_rebuild_compatible,
+    ingest_document,
+)
 from app.services.knowledge_bases import NotFound, require_kb_admin
 
 ACTIVE = ("queued", "running")
 
 
 def configured_profile(settings):
-    if settings.retrieval_embedding_backend == "fake":
-        return EmbeddingProfile.fake()
-    return EmbeddingProfile(
-        provider="openai",
-        model=settings.embedding_model,
-        dimensions=settings.embedding_dimensions,
-    )
+    try:
+        if settings.retrieval_embedding_backend == "fake":
+            return EmbeddingProfile.fake(dimensions=settings.embedding_dimensions)
+        return EmbeddingProfile(
+            provider="openai",
+            model=settings.embedding_model,
+            dimensions=settings.embedding_dimensions,
+        )
+    except ValueError as exc:
+        raise IngestError("INVALID_EMBEDDING_CONFIG") from exc
+
+
+def lock_document_operation(session, document_id):
+    # A collision only serializes unrelated documents; it cannot grant access.
+    key = int.from_bytes(document_id.bytes[:8], "big", signed=True)
+    session.execute(select(func.pg_advisory_xact_lock(key)))
 
 
 def enqueue(session, user_id, kb_id, document_id, profile, *, reuse_latest=False):
     """Participate in caller's transaction: never commit an upload separately."""
     require_kb_admin(session, user_id, kb_id)
+    lock_document_operation(session, document_id)
     document = session.scalar(
         select(Document)
         .where(
@@ -42,6 +57,7 @@ def enqueue(session, user_id, kb_id, document_id, profile, *, reuse_latest=False
         raise NotFound()
     session.expire_all()  # Refresh roles if the document lock required waiting.
     require_kb_admin(session, user_id, kb_id)
+    ensure_rebuild_compatible(session, document, profile)
     statement = select(IngestionJob).where(IngestionJob.document_id == document_id)
     active = session.scalar(statement.where(IngestionJob.status.in_(ACTIVE)))
     if active is not None:

@@ -13,7 +13,7 @@ from jsonschema.exceptions import ValidationError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.llm.contracts import ChatClient, EmbeddingClient, ModelError
-from app.repositories.sources import Source, current_sources
+from app.repositories.sources import Source, current_sources, is_expired_source
 from app.retrieval.vector import RetrievedChunk
 from app.services.ingest import EmbeddingProfile
 from app.services.knowledge_bases import NotFound, require_kb_member
@@ -160,6 +160,10 @@ def get_source(factory, user_id, kb_id, document_id, build_id, chunk_id) -> Sour
             or source.document_id != document_id
             or source.build_id != build_id
         ):
+            if is_expired_source(session, kb_id, document_id, build_id, chunk_id):
+                raise AnswerError(
+                    "SOURCE_EXPIRED", 410, "Source build has expired; ask again"
+                )
             raise NotFound()
         return source
 

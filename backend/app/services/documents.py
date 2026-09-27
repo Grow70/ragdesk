@@ -1,18 +1,21 @@
 """Private original-file storage and document access rules."""
 
+import errno
 import hashlib
 import os
 import re
+import stat
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import UploadFile
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Document
+from app.models import Document, DocumentBuild, IngestionJob
 from app.repositories import documents as repo
-from app.services.ingestion_jobs import enqueue
+from app.services.ingestion_jobs import ACTIVE, enqueue, lock_document_operation
 from app.services.knowledge_bases import NotFound, require_kb_admin, require_kb_member
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -196,3 +199,94 @@ def original_path(document: Document, storage_dir: Path) -> Path:
     if not path.is_file():
         raise RuntimeError("Stored document is missing")
     return path
+
+
+def cleanup_original(storage_dir: Path, storage_key: str) -> str:
+    """Unlink one generated object, anchored to open directories; fail closed."""
+    if not _STORAGE_KEY.fullmatch(storage_key):
+        return "blocked"
+    if not {os.open, os.stat, os.unlink}.issubset(os.supports_dir_fd) or not hasattr(
+        os, "O_NOFOLLOW"
+    ):
+        return "pending"
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        root_fd = os.open(storage_dir.resolve(strict=True), flags)
+        try:
+            objects_fd = os.open("objects", flags, dir_fd=root_fd)
+            try:
+                name = storage_key.split("/")[1]
+                info = os.stat(name, dir_fd=objects_fd, follow_symlinks=False)
+                if not stat.S_ISREG(info.st_mode):
+                    return "blocked"
+                os.unlink(name, dir_fd=objects_fd)
+            finally:
+                os.close(objects_fd)
+        finally:
+            os.close(root_fd)
+    except FileNotFoundError:
+        return "missing"
+    except OSError as exc:
+        return "blocked" if exc.errno in (errno.ELOOP, errno.ENOTDIR) else "pending"
+    return "removed"
+
+
+def delete_document(session, user_id, kb_id, document_id, storage_dir):
+    require_kb_admin(session, user_id, kb_id)
+    if (
+        session.scalar(
+            select(Document.id).where(
+                Document.id == document_id, Document.kb_id == kb_id
+            )
+        )
+        is None
+    ):
+        raise NotFound()
+    lock_document_operation(session, document_id)
+    # Enqueue shares this advisory lock. No new job can appear after this scan.
+    # Worker transactions lock job before document; deletion uses the same order.
+    active_jobs = list(
+        session.scalars(
+            select(IngestionJob)
+            .where(
+                IngestionJob.document_id == document_id,
+                IngestionJob.status.in_(ACTIVE),
+            )
+            .order_by(IngestionJob.id)
+            .with_for_update()
+        )
+    )
+    document = session.scalar(
+        select(Document)
+        .where(Document.id == document_id, Document.kb_id == kb_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if document is None:
+        raise NotFound()
+    session.expire_all()
+    require_kb_admin(session, user_id, kb_id)
+    now = session.scalar(select(func.clock_timestamp()))
+    document.deleted_at = document.deleted_at or now
+    document.active_build_id = None
+    for job in active_jobs:
+        job.status = "failed"
+        job.error_code = job.error_summary = "DOCUMENT_DELETED"
+        job.finished_at = now
+        job.lease_expires_at = job.run_token = None
+    for build in session.scalars(
+        select(DocumentBuild)
+        .where(
+            DocumentBuild.document_id == document_id,
+            DocumentBuild.status == "processing",
+        )
+        .order_by(DocumentBuild.id)
+        .with_for_update()
+    ):
+        build.status = "failed"
+        build.error_code = build.error_message = "DOCUMENT_DELETED"
+        build.finished_at = now
+    storage_key = document.storage_key
+    session.commit()  # All visibility and task cancellation changes become atomic.
+    # Filesystem failure cannot roll back deletion; repeat DELETE retries cleanup.
+    return cleanup_original(storage_dir, storage_key)

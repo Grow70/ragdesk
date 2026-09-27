@@ -63,7 +63,7 @@ flowchart TD
 
 预算由 `ContextBudget` 控制，默认总额度 16384、输出预留 1024 token、消息封装安全余量 1024；以完整消息 JSON 与 schema 的 UTF-8 字节数保守计量输入，不声称是精确 token 计数。系统提示、问题、schema 先占预算，剩余空间按排名装入完整块，不截断例外条款；省略块时向模型标明范围不完整，全部放不下返回资料不足。Chat 请求显式设置 `max_completion_tokens=1024`。这些是应用调用上限，更换模型须复核窗口与计量方式。
 
-系统提示要求只依据证据；资料内的命令和伪造角色均为不可信资料。证据 JSON 只放用户消息，不插入系统指令。**引用 ID 合法只验证来源，不能自动证明答案受证据支持**；冲突识别与抵抗提示注入的真实效果须独立实验。返回前重新查询已提供证据，删除、构建切换或内容变化返回 `409 EVIDENCE_CHANGED`，成员撤销返回 `404`。`GET /knowledge-bases/{kb_id}/sources/{document_id}/{build_id}/{chunk_id}` 复用成员授权、校验完整 ID 链、当前 ready 构建和删除状态，返回真实正文、页码、标题、行号。未知或不可见来源统一 `404`。
+系统提示要求只依据证据；资料内的命令和伪造角色均为不可信资料。证据 JSON 只放用户消息，不插入系统指令。**引用 ID 合法只验证来源，不能自动证明答案受证据支持**；冲突识别与抵抗提示注入的真实效果须独立实验。返回前重新查询已提供证据，删除、构建切换或内容变化返回 `409 EVIDENCE_CHANGED`，成员撤销返回 `404`。`GET /knowledge-bases/{kb_id}/sources/{document_id}/{build_id}/{chunk_id}` 复用成员授权、校验完整 ID 链、当前 ready 构建和删除状态，返回真实正文、页码、标题、行号。第 21 步：真实旧 ready 构建的引用对当前成员返回 `410 SOURCE_EXPIRED`；删除、未知、伪造链或无权限来源仍统一 `404`。
 
 ## 4. 分层职责与依赖方向
 
@@ -146,7 +146,7 @@ flowchart TD
 | 认证 | `POST /auth/session`, `GET /auth/me` | 登录入口 / 已认证 | `POST` 接收 `{ "login_name": "...", "password": "..." }`，返回 Bearer `access_token`、`expires_in` 和 `request_id`；`me` 返回从已验证令牌识别的用户 ID、登录名、显示名和 `request_id`。第 5 步不提供注销或令牌撤销接口。 |
 | 知识库 | `GET /knowledge-bases`, `POST /knowledge-bases`, `GET /knowledge-bases/{kb_id}` | 已认证；详情需成员 | 仅列出有权访问的库；创建者为管理员。 |
 | 成员授权 | `GET /knowledge-bases/{kb_id}/members`, `PUT /knowledge-bases/{kb_id}/members/{user_id}`, `DELETE /knowledge-bases/{kb_id}/members/{user_id}` | 管理员 | 查看、授予或调整该库成员角色，或移除成员；`PUT` 请求 `{ "role": "member" | "admin" }`；不允许移除或降级最后一名管理员。未知库或非成员统一 `404`。 |
-| 文档 | `POST /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents/{document_id}`, `GET /knowledge-bases/{kb_id}/documents/{document_id}/raw`, `DELETE /knowledge-bases/{kb_id}/documents/{document_id}` | 上传、删除限管理员；读取需成员 | 上传、分页列表与状态、详情、受保护的原文件下载；重复上传返回已有 ID。删除留待后续步骤。 |
+| 文档 | `POST /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents`, `GET /knowledge-bases/{kb_id}/documents/{document_id}`, `GET /knowledge-bases/{kb_id}/documents/{document_id}/raw`, `DELETE /knowledge-bases/{kb_id}/documents/{document_id}` | 上传、删除限管理员；读取需成员 | 上传、分页列表与状态、详情、受保护的原文件下载；重复上传返回已有 ID。第 21 步删除返回 200 和清理结果，重建使用 POST /{document_id}/rebuild 返回 202（详见文末）。 |
 | 来源 | `GET /knowledge-bases/{kb_id}/sources/{document_id}/{build_id}/{chunk_id}` | 成员或管理员 | 返回授权片段及位置；删除或无权时不返回内容。 |
 | 检索 | `POST /knowledge-bases/{kb_id}/search` | 成员或管理员 | 第 14 步为调试接口；请求 `{ "query": "...", "top_k": 5 }`，`top_k` 范围 1～20；响应含 `distance_metric: "cosine_distance"`、`items: list[RetrievedChunk]` 和 `request_id`。先检查当前成员资格，SQL 同时限制单库、未删除文档、ready 的当前 active build、兼容的完整模型配置 ID 与非空向量；无候选返回空数组。按距离升序做精确检索，不设置近似向量索引。查询 Embedding 默认用 OpenAI；只有显式设置 `RETRIEVAL_EMBEDDING_BACKEND=fake` 才查询 fake 索引，无密钥不回退 fake。模型或数据库故障返回错误响应。 |
 | 问答 | `POST /knowledge-bases/{kb_id}/answers` | 成员或管理员 | 第 15 步启用，请求 `{ "question": "...", "top_k": 5 }`，返回 `AnswerResult`；`top_k` 为 1～20，问题非空且最多 4000 字符。 |
@@ -361,3 +361,16 @@ flowchart TD
 - 可保证数据库发布被当前执行令牌保护以及只有一个 active build；模型调用与数据库事务不能原子提交，崩溃后外部调用及费用可能重复，**不是端到端 exactly-once**。失败候选保留供排查，检索只见 active ready 构建。文件孤儿清理、分布式吞吐和跨系统事务不在本步范围。
 
 官方依据：[PostgreSQL 时间函数](https://www.postgresql.org/docs/17/functions-datetime.html)、[行锁](https://www.postgresql.org/docs/17/explicit-locking.html)、[SQLAlchemy 事务](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html)、[Python Event/Thread](https://docs.python.org/3/library/threading.html)。
+
+## 第 21 步契约：删除与同一原文件重建
+
+- `DELETE /knowledge-bases/{kb_id}/documents/{document_id}` 仅管理员可用。返回 200 `{document_id,status:"deleted",cleanup_status,request_id}`；同库管理员重复删除幂等。普通成员 403，未授权库/不存在/跨库对象统一 404。
+- 删除在一个短事务内设置 `deleted_at`、清空 `active_build_id`，将 queued/running 任务终结为 `failed + DOCUMENT_DELETED`（表示取消，不新增任务枚举），清空租约和 run_token，废弃 processing 构建。保留历史构建用于审计。删除提交后发起的向量/BM25/原文件/引用/任务查询均看不到该文档。已发出的模型请求可能继续计费，但失效令牌不能写入或发布。
+- 入队和删除共同获取按文档 UUID 派生的 PostgreSQL 事务咨询锁；删除按任务→文档→构建顺序加行锁，避免与 worker 的任务→知识库→文档→构建顺序形成反向依赖。咨询锁用于防止扫描活动任务后又插入新任务，worker 模型调用不持锁。
+- `POST /knowledge-bases/{kb_id}/documents/{document_id}/rebuild` 是既有 `/ingestions` 的明确别名，返回 202 和 job_id；重复活动请求复用任务。worker 领取后分配新 run_token/build_id，只读取数据库记录的同一原文件并验证 SHA-256。完成前/失败后仍查询旧 active build；完整成功时由原发布事务切换指针和任务终态。
+- 已有有效构建的重建要求 provider/model/dimensions/config_version 完全兼容，否则 409 `INCOMPATIBLE_REBUILD_CONFIG`，在排队和 CLI/worker 开始构建、发布时检查；切块参数可变。当前数据库固定 vector(1536)，非法配置返回 503 `INVALID_EMBEDDING_CONFIG`，维度变更需要显式迁移及全库重建方案，不自动迁移或混用。查询配置仍必须与有效索引一致。
+- `GET /knowledge-bases/{kb}/sources/{document}/{build}/{chunk}`：授权成员访问确实存在的旧 ready 构建链返回 410 `SOURCE_EXPIRED`，不返回旧正文或映射到新块。删除文档、未知/伪造链、未发布构建及无库权限仍 404；当前构建正常返回来源。
+- 原文件清理在数据库提交之后执行，只处理服务端 `objects/<32位hex>` 键。支持 dir_fd 的系统以受控目录句柄和 O_NOFOLLOW 限定操作，不跟随目录/文件符号链接、不递归删除。结果为 removed/missing/blocked/pending；不支持安全目录句柄的系统（包括当前 Windows 回退路径）返回 pending，保留私有文件，逻辑删除仍成功。进程在提交后退出可能留下私有孤儿文件；管理员重复 DELETE 可重试，暂不增加自动垃圾回收。
+- 上传相同文件名但不同内容仍创建另一文档，未提供覆盖原文档接口。历史块不立即物理删除，但所有读取继续限定未删除文档及当前 active build。迁移/分布式 worker/新文件版本管理不在本步范围。
+
+官方依据（本步核对，无新增依赖）：[PostgreSQL 17 咨询锁](https://www.postgresql.org/docs/17/explicit-locking.html#ADVISORY-LOCKS)、[Python os 的 dir_fd 与 unlink](https://docs.python.org/3.12/library/os.html#os.unlink)。事务咨询锁在事务结束释放；文件与数据库不共享原子事务，因此以数据库可见性为删除提交点。

@@ -51,3 +51,24 @@ def current_sources(
         )
         for chunk, document_id, name in rows
     }
+
+
+def is_expired_source(session, kb_id, document_id, build_id, chunk_id) -> bool:
+    """Classify only a real, formerly published chain; never expose its text."""
+    return (
+        session.scalar(
+            select(Chunk.id)
+            .join(DocumentBuild, Chunk.build_id == DocumentBuild.id)
+            .join(Document, DocumentBuild.document_id == Document.id)
+            .where(
+                Document.kb_id == kb_id,
+                Document.id == document_id,
+                Document.deleted_at.is_(None),
+                Document.active_build_id.is_distinct_from(DocumentBuild.id),
+                DocumentBuild.id == build_id,
+                DocumentBuild.status == "ready",
+                Chunk.id == chunk_id,
+            )
+        )
+        is not None
+    )

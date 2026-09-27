@@ -1,17 +1,17 @@
-# 数据库任务、单 worker 与故障恢复（20A / 20B）
+# 数据库任务、单 worker 与故障恢复（20A / 20B / 21）
 
 ## 状态与一致性
 
 上传请求仍需收完文件、检查格式/大小并保存原文件，但不解析、切块或调用 Embedding。新文档及 queued 任务同一数据库事务提交后返回 202；入队失败则回滚本次文档与任务，清理本次临时/最终文件。重复上传不会无限排队：复用活动任务，无活动任务时复用最近终态任务。显式入库请求则可在终态后创建新任务。
 
-`ingestion_jobs` 保存文档、发起用户、构建、状态、尝试数、无密钥的模型/切块/批次配置快照、安全错误摘要和时间字段。数据库部分唯一索引限制每份文档只有一个 queued/running 任务；创建事务锁文档行，串行处理同文档请求，数据库约束兜底。
+`ingestion_jobs` 保存文档、发起用户、构建、状态、尝试数、无密钥的模型/切块/批次配置快照、安全错误摘要和时间字段。数据库部分唯一索引限制每份文档只有一个 queued/running 任务；第 21 步创建事务先取得文档事务咨询锁，再锁文档行，与删除互斥；数据库约束兜底。
 
 | 任务状态 | 含义 | attempts |
 | --- | --- | --- |
 | queued | 已接受或等待重试 | 0～2 |
 | running | 领取事务已提交，租约内执行 | 1～3 |
 | succeeded | 构建与任务在同一事务成功发布 | 1～3 |
-| failed | 永久错误或重试耗尽 | 1～3 |
+| failed | 永久错误、重试耗尽或文档删除取消 | 0～3（未领取就删除为 0） |
 
 第 20B 步增加自动恢复：过期 running 可以重新领取，明确的临时模型错误可以重新排队。`max_attempts` 默认 3，数据库允许 1～3；不开放客户端修改预算。模型客户端原有的最多 3 次网络尝试与任务 `attempts` 不同；任务尝试数统计被 worker 领取的次数。每批在最坏情况下可能有 3 次任务尝试 × 每次最多 3 次模型尝试，不能把任务上限当作计费请求上限。
 
@@ -26,6 +26,7 @@
 所有接口使用后端 JWT 用户及现有 `require_kb_admin`。处理任务状态沿用原架构的管理员权限；普通成员可继续查看文档列表和授权来源，不能请求入库或查询任务错误详情。无库权限、不存在、已删除以及库/文档/任务链不匹配统一 404；普通成员调用管理员接口为 403。
 
 - 上传：`POST /knowledge-bases/{kb_id}/documents`，multipart `file`。
+- 原文件重建：`POST /knowledge-bases/{kb_id}/documents/{document_id}/rebuild`，与显式入库共用入口；模型配置兼容性、删除取消及旧引用见 [文档生命周期](document_lifecycle.md)。
 - 显式入库：`POST /knowledge-bases/{kb_id}/documents/{document_id}/ingestions`，无需请求体，客户端不能指定用户或模型。
 - 查询：`GET /knowledge-bases/{kb_id}/documents/{document_id}/jobs/{job_id}`。
 
@@ -44,7 +45,7 @@
 
 HTTP 202 表示接受处理，不承诺入库成功；重复请求可能观察到任务已经终结。管理员用 status_url 查询 `status/attempts/max_attempts/build_id/error_code/error_summary/heartbeat_at/lease_expires_at/created_at/started_at/finished_at`（不暴露内部 run_token）。`uploaded` 只描述文件已保存，不代表索引 ready。
 
-任务是管理员已提交的持久工作，worker 用本地受信任数据库身份执行；提交后撤销该用户权限不会自动取消已接受任务，但其下次状态查询会立即被拒绝。文档删除仍会由原入库服务阻止发布。
+任务是管理员已提交的持久工作，worker 用本地受信任数据库身份执行；提交后撤销该用户权限不会自动取消已接受任务，但其下次状态查询会立即被拒绝。第 21 步文档删除在同一事务取消 queued/running 任务（failed + DOCUMENT_DELETED）、撤销 token，并阻止发布；删除后任务接口也不再可见。
 
 ## PowerShell 启动与演示
 

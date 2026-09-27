@@ -308,3 +308,17 @@ uv run --locked pytest -q tests/test_job_recovery.py
 ```
 
 测试使用可控时钟和事件验证崩溃、延迟返回、租约耗尽和删除边界，不等待真实租约到期。`--lease-seconds` 和 `--heartbeat-seconds` 可调整租约及心跳间隔；旧版无令牌检查的 worker 必须在迁移前停止。
+
+## 文档删除与原文件重建（第 21 步）
+
+管理员可调用 `DELETE /knowledge-bases/{kb_id}/documents/{document_id}` 删除文档，或 `POST /knowledge-bases/{kb_id}/documents/{document_id}/rebuild` 返回 202 入队重建。删除在同一事务撤销有效构建、取消活动任务；旧 worker 不能重新发布。重建失败保留旧索引，成功才原子切换，旧构建引用返回 410 SOURCE_EXPIRED。模型/维度不兼容时明确拒绝，不覆盖原文件。
+
+文件清理限定私有上传目录，响应包含 cleanup_status。**Windows 原生环境目前仅逻辑删除，原文件清理为 pending；Linux/WSL 支持受目录句柄保护的清理。** 历史块暂保留作诊断，不进入检索。
+
+在 backend 目录、配置临时测试服务器后执行：
+
+```powershell
+uv run --locked pytest -q tests/test_document_lifecycle.py
+```
+
+接口、错误码、并发顺序、完整 PowerShell 演示与验收见 [文档生命周期说明](docs/document_lifecycle.md)。
