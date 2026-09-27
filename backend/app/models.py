@@ -223,6 +223,9 @@ class IngestionJob(Base):
         ),
         CheckConstraint("attempts >= 0", name="ck_ingestion_jobs_attempts"),
         CheckConstraint(
+            "max_attempts BETWEEN 1 AND 3", name="ck_ingestion_jobs_max_attempts"
+        ),
+        CheckConstraint(
             "status <> 'failed' OR "
             "(error_code IS NOT NULL AND error_summary IS NOT NULL)",
             name="ck_ingestion_jobs_failed_error",
@@ -253,6 +256,12 @@ class IngestionJob(Base):
     build_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    max_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="3"
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    run_token: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     profile: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(100))
     error_summary: Mapped[str | None] = mapped_column(String(200))

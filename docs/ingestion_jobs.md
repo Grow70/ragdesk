@@ -1,4 +1,4 @@
-# 第 20A 步：数据库任务与单 worker
+# 数据库任务、单 worker 与故障恢复（20A / 20B）
 
 ## 状态与一致性
 
@@ -8,16 +8,18 @@
 
 | 任务状态 | 含义 | attempts |
 | --- | --- | --- |
-| queued | 已接受，等待 worker | 0 |
-| running | 领取事务已提交，正在入库 | 1 |
-| succeeded | 现有入库服务确认完整成功并发布 | 1 |
-| failed | 正常处理遇到解析、模型、配置等错误 | 1 |
+| queued | 已接受或等待重试 | 0～2 |
+| running | 领取事务已提交，租约内执行 | 1～3 |
+| succeeded | 构建与任务在同一事务成功发布 | 1～3 |
+| failed | 永久错误或重试耗尽 | 1～3 |
 
-本步不自动重试。模型客户端原有的最多 3 次网络尝试与任务 `attempts` 不同；任务尝试数统计被 worker 领取的次数。
+第 20B 步增加自动恢复：过期 running 可以重新领取，明确的临时模型错误可以重新排队。`max_attempts` 默认 3，数据库允许 1～3；不开放客户端修改预算。模型客户端原有的最多 3 次网络尝试与任务 `attempts` 不同；任务尝试数统计被 worker 领取的次数。每批在最坏情况下可能有 3 次任务尝试 × 每次最多 3 次模型尝试，不能把任务上限当作计费请求上限。
 
-构建仍由原入库服务创建，worker 用 job UUID 作为本次构建 UUID；入库结束后关联存在的 build。排队/运行中 `build_id` 可以为空，缺密钥等创建构建前失败也为空。非空 build_id 有同文档组合外键。`active_build_id` 仍是唯一发布指针，失败重建保留旧有效构建；文档状态可为 ready，而最近重建任务为 failed。
+每次领取生成新 `run_token`，它同时作为本次构建 ID。构建创建后立即在同一事务关联任务；开始解析前失败时 build_id 仍可为空。过期的 processing 构建废弃，重试创建新构建，旧块仅作失败诊断。`active_build_id` 仍是唯一发布指针；新构建完整成功前，旧有效构建继续可检索。
 
-领取、批次写库和任务终态各用短事务；模型调用期间不占数据库连接和行锁。任务失败摘要只使用安全机器码，例如 `OPENAI_API_KEY_REQUIRED`、`MODEL_TIMEOUT`、`EMPTY_BODY`、`INGESTION_JOB_FAILED`，不保存供应商原始报错、正文或密钥。
+每次写库检查任务 running、run_token 相符和租约未过期。发布事务同时检查文档未删除、块完整及执行权，再提交 build ready、active_build_id 和 job succeeded；检查失败则整个事务回滚。领取、心跳和批次写入各用短事务，模型主调用不持有连接/行锁；心跳线程只在独立短事务中续租，不与网络请求共用 Session。
+
+失败只保存安全机器码/摘要，不保存供应商原文、正文或密钥。自动重试白名单为 `MODEL_TIMEOUT`、`MODEL_NETWORK_ERROR`、`MODEL_UNAVAILABLE`；解析、认证、配置、维度及未知错误终结 failed。崩溃尝试计入预算，第 3 次过期后下一次轮询将其置为 `RETRY_EXHAUSTED`，不发起第 4 次。最后一次正常临时错误保留其原错误码，通过 attempts/max_attempts 看出已耗尽。
 
 ## 接口与权限
 
@@ -40,13 +42,13 @@
 }
 ```
 
-HTTP 202 表示接受处理，不承诺入库成功；重复请求可能观察到任务已经终结。管理员用 status_url 查询 `status/attempts/build_id/error_code/error_summary/created_at/started_at/finished_at`。`uploaded` 只描述文件已保存，不代表索引 ready。
+HTTP 202 表示接受处理，不承诺入库成功；重复请求可能观察到任务已经终结。管理员用 status_url 查询 `status/attempts/max_attempts/build_id/error_code/error_summary/heartbeat_at/lease_expires_at/created_at/started_at/finished_at`（不暴露内部 run_token）。`uploaded` 只描述文件已保存，不代表索引 ready。
 
 任务是管理员已提交的持久工作，worker 用本地受信任数据库身份执行；提交后撤销该用户权限不会自动取消已接受任务，但其下次状态查询会立即被拒绝。文档删除仍会由原入库服务阻止发布。
 
 ## PowerShell 启动与演示
 
-在 `backend` 目录，先按 README 配置本地 PostgreSQL、`DATABASE_URL`、`JWT_SECRET`。API 和 worker 必须共享数据库及 `UPLOAD_STORAGE_DIR`（默认 `backend/var/uploads`）。应用启动不自动迁移：
+在 `backend` 目录，先按 README 配置本地 PostgreSQL、`DATABASE_URL`、`JWT_SECRET`。API 和 worker 必须共享数据库及 `UPLOAD_STORAGE_DIR`（默认 `backend/var/uploads`）。**先停止所有旧版 20A worker，再迁移并启动新版**，因为旧二进制没有令牌校验，不能与新版混用。应用启动不自动迁移：
 
 ```powershell
 uv sync --locked
@@ -63,7 +65,7 @@ uv run --locked uvicorn app.main:create_app --factory --host 127.0.0.1 --port 80
 另开一个终端进入 `backend`，配置同一数据库、JWT_SECRET 和文件目录，只启动 **一个** worker：
 
 ```powershell
-uv run --locked python -m app.worker --poll-seconds 1
+uv run --locked python -m app.worker --poll-seconds 1 --lease-seconds 60 --heartbeat-seconds 10
 ```
 
 任务使用 API 入队时保存的模型配置，fake/真实不会因 worker 环境后续变化而互换。真实模式 API 使用 `RETRIEVAL_EMBEDDING_BACKEND=openai`；worker 必须从环境读取 `OPENAI_API_KEY`。真实与 fake 使用隔离知识库，入库服务继续阻止同一有效索引混用配置。更改配置对已有 queued 任务无效。
@@ -82,7 +84,7 @@ $job = Invoke-RestMethod -Method Post -Uri "$base/knowledge-bases/$($kb.id)/docu
 Invoke-RestMethod -Uri "$base$($job.status_url)" -Headers $headers
 ```
 
-worker `--once` 最多领取一个任务：成功或空队列退出 0，正常任务失败退出 1，配置/数据库等导致 worker 停止退出 2，Ctrl+C 退出 130。常驻 worker 完成一个失败任务后可以继续处理下一个 queued 任务。不要把 `--once` 与常驻 worker 同时启动。
+worker `--once` 最多领取一个任务：成功或空队列退出 0，失败、待重试或失去租约退出 1，配置/数据库等导致 worker 停止退出 2，Ctrl+C 退出 130。常驻 worker 完成一个失败任务后可以继续处理下一个 queued 任务。不要把 `--once` 与常驻 worker 同时启动。
 
 原 `python -m app.ingest_document ...` 保留供本地独立调试。它直接执行构建，不会同步队列任务状态；请停止 worker 后使用，且不要再以 CLI 完成视为任务已完成。
 
@@ -91,7 +93,7 @@ worker `--once` 最多领取一个任务：成功或空队列退出 0，正常�
 设置 `TEST_POSTGRES_ADMIN_URL` 指向可创建数据库的本地测试服务器，再进入 `backend`：
 
 ```powershell
-uv run --locked pytest -q tests/test_ingestion_jobs.py tests/test_documents.py tests/test_ingest.py tests/test_core_database.py
+uv run --locked pytest -q tests/test_job_recovery.py tests/test_ingestion_jobs.py tests/test_ingest.py tests/test_core_database.py
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv lock --check
@@ -99,16 +101,50 @@ uv lock --check
 
 测试自行创建/删除随机数据库，不操作已有用户库。覆盖独立进程 worker、HTTP 上传不入库、queued/running 去重、并发首次排队、任务状态查询及撤权、失败重建保留有效索引、缺真实密钥不回退 fake、事务回滚清理、数据库外键/唯一约束及迁移升降级。模型调用中的断言验证无占用连接，另一个事务用 NOWAIT 获取任务/文档/构建锁以证明无遗留行锁。
 
-## 本步限制
+## 租约与旧执行隔离
 
-只支持一个 worker，API 与 worker 是两个独立进程。没有心跳、租约、自动重领、超时任务恢复、任务重试接口或分布式运行保证。即使领取使用数据库锁，也不能据此宣称整个任务系统具备多 worker 容错能力。
+生产租约时间取 PostgreSQL `clock_timestamp()`，不使用 worker 主机时间，也不使用固定在事务开始时刻的 `now()` 判断等待行锁后的剩余租约。截止时间等于当前时刻就算过期；已过期的心跳不能延长旧租约。默认 60 秒租约、10 秒心跳，参数要求有限正数且心跳间隔小于租约；这些是配置值，不是性能测量结论。
 
-进程崩溃、强制终止或终态写库失败可能留下 running；构建发布和任务终态分开提交，可能出现文档 ready 而任务 running。排队任务仍持久保存，但 running 不会自动恢复，且会继续阻止同文档新任务。文件落盘与数据库之间的崩溃清理也未在本步解决。以上留待第 20B 步；本步不提供破坏性的手工清理命令。
+旧 worker 可能在新 worker 完成后才收到模型结果；它的令牌已失效，不能写块、改任务状态或切换 active_build_id。worker 输出 `lease_lost` 表示该执行已失效，不把数据库任务改成另一个状态。run_token 是随机执行标识，通过任务行锁和相等校验保护数据库写入；不是公开的重试凭证。
 
-官方依据：[SQLAlchemy 事务边界](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html)、[PostgreSQL 部分唯一索引](https://www.postgresql.org/docs/current/indexes-partial.html)、[SELECT 行锁](https://www.postgresql.org/docs/current/sql-select.html)、[FastAPI 响应状态](https://fastapi.tiangolo.com/tutorial/response-status-code/)。未新增依赖，沿用已锁定版本。
+升级前已有的无租约 running 可被重新领取；旧 processing 构建通过 build_id 或旧 job.id 定位后废弃。旧的 ready active build 保留，新的构建成功才替换。新代码不会重跑已终结任务。迁移升降级只在测试库验收；回退会删除租约列，不能与新版 worker 同时进行。
 
-## 实际验证记录
+## 能保证什么
+
+数据库侧：当前执行令牌保护发布，同一文档只有一个 active build，同一 build 的 ordinal 唯一。重复执行不会多出重复的有效块，但失败候选会留存，未做垃圾清理。
+
+外部模型调用不属于 PostgreSQL 事务。模型已处理但进程在写库前崩溃时，恢复可能重新发送同一批正文并再次计费；**不能宣称端到端 exactly-once**。本步只做恢复，不缓存供应商响应或引入跨系统事务。
+
+仍按一个常驻 worker 部署，不宣称完整分布式任务系统。故障测试故意模拟旧进程与新执行重叠，用于验证隔离，而非吞吐量测试。心跳无法撤销已发出的网络请求；数据库失联时续租停止，后续写入必须重新通过数据库检查。恢复需要数据库重新可用及 worker 继续轮询。文件落盘孤儿清理、失败块清理与独立 CLI 的并行操作不在本步范围。
+
+官方依据：[PostgreSQL 时间函数](https://www.postgresql.org/docs/17/functions-datetime.html)、[行锁](https://www.postgresql.org/docs/17/explicit-locking.html)、[SQLAlchemy 事务](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html)、[Python Thread/Event](https://docs.python.org/3/library/threading.html)。未新增依赖，沿用现有锁文件。
+
+## 第 20B 步故障注入设计
+
+测试注入 UTC 时钟，直接前进到截止时间，不等待 60 秒。模型晚到用 Event 同步；心跳线程检查使用事件等待，不用长 sleep。
+
+| 注入点 | 检查 |
+| --- | --- |
+| 领取提交后退出 | 到期前不可重领；到期后 attempt+1、run_token 改变 |
+| Embedding 返回后退出 | 再执行可能重复模型调用，但只发布新构建 |
+| 发布前/发布事务内退出 | 文档指针、构建 ready 和任务 succeeded 同时回滚 |
+| 旧模型延迟成功或报错 | 新执行已成功后，旧执行只能返回 lease_lost |
+| 心跳续租/过期 | 有效心跳延期；过期、旧 token 不可续租 |
+| 第三次崩溃/连续临时错误 | 终结失败，没有第四次自动尝试 |
+| 永久错误 | 一次失败即终结 |
+| 发布前删除 | 不切换 active_build_id，构建失败 |
+| 无新执行但租约已过期 | 同样拒绝发布，不能仅靠 token 相同放行 |
+| 20A 遗留 running | 迁移保留任务并回收旧 processing 构建 |
+
+## 第 20A 步历史验证记录
+
 
 本步定向组 `19 passed`；完整回归 `180 passed, 2 skipped`，均有 1 个既有 TestClient 弃用警告，跳过项为真实模型检查。Ruff、格式、依赖锁和 Alembic 模型差异检查通过。独立子进程 `app.worker --once` 实际完成 fake 任务，第二次返回 idle；未调用真实模型。
 
 一份 20 字节 TXT 经 TestClient 上传的单次观测为 39.819 ms（n=1），请求内禁止执行入库仍成功返回 queued。此检查只验证异步边界与本机小文件正常路径，不是生产性能目标。迁移回退和所有数据库写入均在随机临时测试库进行，结束后删除；专用测试容器已停止。
+
+## 第 20B 步实际验证记录
+
+新增 16 项故障恢复检查全部通过，完整回归 **196 passed, 2 skipped, 1 warning**。两项跳过为真实模型检查，警告为既有 TestClient 弃用提示；没有真实 API 调用。Ruff、格式、锁文件检查和 Alembic 差异/迁移回退检查通过。
+
+首次 Docker 未启动时 31 项跳过；恢复引擎后首次定向组 30 通过、1 失败，失败为上传准备阶段的偶发 401。该项带临时安全诊断复跑通过，之后全量通过；未修改认证，历史偶发原因仍未定位。详细证据与请求 ID 见 docs/progress.md，原始日志保存在本地忽略目录 artifacts/validation/step20b/。所有迁移及故障注入只操作随机测试库，容器在验收后停止。

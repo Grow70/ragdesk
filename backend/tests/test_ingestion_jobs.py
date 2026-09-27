@@ -133,7 +133,7 @@ def test_upload_queues_without_model_then_worker_publishes(job_env, monkeypatch)
                 )
                 build = session.scalar(
                     select(DocumentBuild)
-                    .where(DocumentBuild.id == job.id)
+                    .where(DocumentBuild.id == job.build_id)
                     .with_for_update(nowait=True)
                 )
                 assert doc.active_build_id is None and build.status == "processing"
@@ -143,7 +143,7 @@ def test_upload_queues_without_model_then_worker_publishes(job_env, monkeypatch)
     result = jobs.process_one(factory, storage, lambda profile: fake)
     assert result["status"] == "succeeded" and fake.call_count == 1
     status = client.get(response["status_url"], headers=alice).json()
-    assert status["status"] == "succeeded" and status["build_id"] == response["job_id"]
+    assert status["status"] == "succeeded" and status["build_id"] == result["build_id"]
     assert status["attempts"] == 1 and status["error_summary"] is None
     assert status["started_at"] and status["finished_at"]
     with Session(engine) as session:
@@ -198,12 +198,12 @@ def test_failed_rebuild_preserves_active_and_explicit_retry_is_new_job(job_env):
     url = f"/knowledge-bases/{a}/documents/{response['document_id']}/ingestions"
     rebuild = client.post(url, headers=alice).json()
 
-    class TimeoutFake(FakeEmbeddingClient):
+    class RejectedFake(FakeEmbeddingClient):
         def embed_documents(self, texts):
-            raise ModelError("MODEL_TIMEOUT")
+            raise ModelError("MODEL_AUTH_FAILED")
 
-    failed = jobs.process_one(factory, storage, lambda p: TimeoutFake())
-    assert failed["status"] == "failed" and failed["error_code"] == "MODEL_TIMEOUT"
+    failed = jobs.process_one(factory, storage, lambda p: RejectedFake())
+    assert failed["status"] == "failed" and failed["error_code"] == "MODEL_AUTH_FAILED"
     with Session(engine) as session:
         assert session.get(
             Document, UUID(response["document_id"])

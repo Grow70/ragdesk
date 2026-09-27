@@ -344,3 +344,20 @@ flowchart TD
 ```
 
 官方依据：[SQLAlchemy 事务](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html)、[PostgreSQL 部分唯一索引](https://www.postgresql.org/docs/current/indexes-partial.html)、[SELECT 行锁](https://www.postgresql.org/docs/current/sql-select.html)、[FastAPI 状态码](https://fastapi.tiangolo.com/tutorial/response-status-code/)；沿用现有锁文件。
+
+
+## 第 20B 步：租约恢复与执行隔离
+
+本节替代 20A 的无恢复执行规则；仍以单常驻 worker 为部署范围，允许旧进程晚到的故障注入，不宣称完整分布式队列。
+
+- 新增 lease_expires_at、heartbeat_at、run_token、max_attempts（默认 3，允许 1～3）。生产租约判断统一用 PostgreSQL clock_timestamp()；测试注入带时区时钟。lease_expires_at <= 当前时刻即失效，已过期不能靠心跳复活。
+- 领取 queued 或过期 running；锁任务并复核状态，尝试计数加 1，每次生成新的 run_token，默认租约 60 秒。每次构建 ID 等于该次 run_token，构建创建即在同一事务关联 job.build_id。旧 processing 构建废弃为 failed，新执行不复用旧候选；旧 ready 有效构建仍可读。
+- worker 每 10 秒以独立短事务心跳续租。参数可通过 worker --lease-seconds/--heartbeat-seconds 配置，心跳间隔必须小于租约。心跳异常停止续租，后续数据库写入仍以数据库租约检查为准；无法强行撤销已发出的外部模型请求。
+- 每次构建写入、失败状态更新以及发布均锁任务并检查 running + run_token + 未过期租约。统一锁序为任务 → 知识库（仅发布）→ 文档 → 构建；网络调用不在这些事务内。
+- 发布时锁定文档并复查未删除，核对完整构建，在同一数据库事务中复查执行权，设置 build ready、document.active_build_id、job succeeded。故障使整个发布事务回滚。旧 worker 的晚到成功、失败和心跳均不得修改新任务或新构建。
+- 临时 MODEL_TIMEOUT/MODEL_NETWORK_ERROR/MODEL_UNAVAILABLE 可在预算未耗尽时重新 queued；配置/认证/输入/解析/维度/未知错误终结 failed。崩溃运行由过期重领；第 3 次仍崩溃则下一次轮询标记 RETRY_EXHAUSTED，不进行第 4 次调用。正常临时错误耗尽时保留实际错误码及 attempts/max_attempts。
+- API 任务状态增加心跳/租约/最大次数，不向客户端开放 run_token 控制。排队重试仍算活动任务，继续受部分唯一索引限制。
+- 迁移前停止旧版 20A worker。旧 running 无租约记录作为可恢复任务处理，旧 processing 构建通过 job.build_id 或旧 job.id 定位并废弃；旧已发布构建保留，新尝试成功后再切换。已终结记录不重跑。不能让无令牌检查的旧二进制与新 worker 同时运行。
+- 可保证数据库发布被当前执行令牌保护以及只有一个 active build；模型调用与数据库事务不能原子提交，崩溃后外部调用及费用可能重复，**不是端到端 exactly-once**。失败候选保留供排查，检索只见 active ready 构建。文件孤儿清理、分布式吞吐和跨系统事务不在本步范围。
+
+官方依据：[PostgreSQL 时间函数](https://www.postgresql.org/docs/17/functions-datetime.html)、[行锁](https://www.postgresql.org/docs/17/explicit-locking.html)、[SQLAlchemy 事务](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html)、[Python Event/Thread](https://docs.python.org/3/library/threading.html)。

@@ -98,9 +98,15 @@ def _validate_vectors(vectors: list[list[float]], count: int) -> None:
 
 
 def _failure(
-    factory: sessionmaker[Session], build_id: UUID, config_id: str, code: str
+    factory: sessionmaker[Session],
+    build_id: UUID,
+    config_id: str,
+    code: str,
+    execution=None,
 ) -> IngestOutcome:
     with factory.begin() as session:
+        if execution is not None:
+            execution.check(session)
         build = session.get(DocumentBuild, build_id, with_for_update=True)
         if build is None:
             raise IngestError("BUILD_NOT_FOUND")
@@ -110,6 +116,8 @@ def _failure(
             build.error_message = code  # No provider text, source text or secret.
             build.finished_at = datetime.now(timezone.utc)
         count = repo.candidate_totals(session, build_id)[0]
+        if execution is not None:
+            execution.fail(session, code)
     return IngestOutcome(build_id, "failed", count, config_id, error_code=code)
 
 
@@ -120,6 +128,9 @@ def ingest_document(
     client: EmbeddingClient,
     profile: EmbeddingProfile,
     build_id: UUID | None = None,
+    *,
+    execution=None,
+    fault_hook=None,
 ) -> IngestOutcome:
     """Index one private upload; caller must be a trusted local DB operator."""
     if (
@@ -130,6 +141,8 @@ def ingest_document(
         raise IngestError("EMBEDDING_CONFIG_MISMATCH")
     build_id = build_id or uuid4()
     with factory.begin() as session:
+        if execution is not None:
+            execution.check(session)
         document = repo.locked_document(session, document_id)
         if document is None or document.deleted_at is not None:
             raise IngestError("DOCUMENT_NOT_FOUND")
@@ -175,6 +188,9 @@ def ingest_document(
                 config_version=profile.config_version,
             )
         )
+        if execution is not None:
+            session.flush()
+            execution.bind(session, build_id)
 
     try:
         if suffix not in {".md", ".txt", ".pdf"}:
@@ -201,6 +217,8 @@ def ingest_document(
         if not drafts:
             raise IngestError("EMPTY_CHUNKS")
         with factory.begin() as session:
+            if execution is not None:
+                execution.check(session)
             build = session.get(DocumentBuild, build_id, with_for_update=True)
             if build is None or build.status != "processing":
                 raise IngestError("BUILD_NOT_PROCESSING")
@@ -208,15 +226,26 @@ def ingest_document(
 
         for start in range(0, len(drafts), profile.batch_size):
             batch = drafts[start : start + profile.batch_size]
+            if execution is not None:
+                with factory.begin() as session:
+                    execution.check(session)
             result = client.embed_documents([draft.text for draft in batch])
+            if fault_hook is not None:
+                fault_hook("after_embedding")
             _validate_vectors(result.vectors, len(batch))
             with factory.begin() as session:
+                if execution is not None:
+                    execution.check(session)
                 build = session.get(DocumentBuild, build_id, with_for_update=True)
                 if build is None or build.status != "processing":
                     raise IngestError("BUILD_NOT_PROCESSING")
                 repo.insert_candidates(session, build_id, batch, result.vectors)
 
+        if fault_hook is not None:
+            fault_hook("before_publish")
         with factory.begin() as session:
+            if execution is not None:
+                execution.check(session)
             if repo.locked_kb(session, kb_id) is None:
                 raise IngestError("KB_NOT_FOUND")
             document = repo.locked_document(session, document_id)
@@ -243,6 +272,10 @@ def ingest_document(
             build.status = "ready"
             build.finished_at = datetime.now(timezone.utc)
             document.active_build_id = build_id
+            if execution is not None:
+                execution.succeed(session)
+            if fault_hook is not None:
+                fault_hook("publish_transaction")
         return IngestOutcome(build_id, "ready", len(drafts), profile.config_id)
     except Exception as exc:
         code = (
@@ -250,6 +283,8 @@ def ingest_document(
             if isinstance(exc, (IngestError, ModelError, ParseError))
             else "INGEST_FAILED"
         )
+        if code == "LEASE_LOST":
+            raise
         LOGGER.warning(
             "build_failed build_id=%s code=%s exception_type=%s constraint=%s",
             build_id,
@@ -263,4 +298,4 @@ def ingest_document(
             if isinstance(exc, IntegrityError)
             else None,
         )
-        return _failure(factory, build_id, profile.config_id, code)
+        return _failure(factory, build_id, profile.config_id, code, execution)

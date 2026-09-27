@@ -285,11 +285,11 @@ uv run --locked pytest -q tests/test_reranker.py tests/test_reranked.py tests/te
 默认评测仅预检；真实比较需人工复核 dev、真实索引和 API 配置后显式 `--run-real`。本次 15 题 fake 诊断不产生正式效果数字。配置、单次真实验证命令、配对评测与默认关闭理由见 [重排及实验记录](docs/rerank.md)。
 
 
-## 数据库入库任务与单 worker（第 20A 步）
+## 数据库入库任务与单 worker（第 20A / 20B 步）
 
 API 接受上传后返回 `202`，独立 worker 领取 queued 任务并调用原入库服务。显式重新入库：`POST /knowledge-bases/{kb_id}/documents/{document_id}/ingestions`；管理员查询 `GET /knowledge-bases/{kb_id}/documents/{document_id}/jobs/{job_id}`。同一文档最多一个 queued/running 任务，重复上传连已结束的最近任务也复用；需要重建时显式请求入库。
 
-API 与 worker 使用相同数据库、私有上传目录。先在 `backend` 中执行迁移，再在另一个已配置环境的 PowerShell 终端启动唯一 worker：
+API 与 worker 使用相同数据库、私有上传目录。先停止旧版 worker，在 `backend` 中执行迁移，再在另一个已配置环境的 PowerShell 终端启动唯一新版 worker：
 
 ```powershell
 uv run --locked alembic upgrade head
@@ -298,4 +298,13 @@ uv run --locked python -m app.worker
 
 本地 fake 演示应在 **API 启动前** 设置 `$env:RETRIEVAL_EMBEDDING_BACKEND = "fake"`，且使用独立 fake 知识库。任务记录模型配置快照；worker 按快照执行，缺少真实密钥会明确失败，不自动换成 fake。单任务调试可运行 `uv run --locked python -m app.worker --once`，但不能与常驻 worker 同时运行。
 
-**仅支持单 worker 的正常流程；未实现崩溃恢复。** 强制退出可能留下 running 任务；本步没有自动重领、重试、租约或分布式运行保证。完整 PowerShell 演示、任务字段、错误码、测试和一致性边界见 [任务与 worker 说明](docs/ingestion_jobs.md)。
+第 20B 步增加默认 60 秒租约、10 秒心跳与 run_token：过期任务可重领，默认最多 3 次；永久错误直接终结。发布与任务成功在同一事务提交，旧执行不能覆盖新结果。仍按单 worker 部署，外部模型调用可能重复，**不保证端到端 exactly-once**。完整 PowerShell 演示、任务字段、错误码、测试和一致性边界见 [任务与 worker 说明](docs/ingestion_jobs.md)。
+
+
+故障恢复验收（需配置临时测试服务器）：
+
+```powershell
+uv run --locked pytest -q tests/test_job_recovery.py
+```
+
+测试使用可控时钟和事件验证崩溃、延迟返回、租约耗尽和删除边界，不等待真实租约到期。`--lease-seconds` 和 `--heartbeat-seconds` 可调整租约及心跳间隔；旧版无令牌检查的 worker 必须在迁移前停止。

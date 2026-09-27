@@ -41,6 +41,9 @@ class JobResponse(BaseModel):
     build_id: UUID | None
     status: Literal["queued", "running", "succeeded", "failed"]
     attempts: int
+    max_attempts: int
+    heartbeat_at: datetime | None
+    lease_expires_at: datetime | None
     error_code: str | None
     error_summary: str | None
     created_at: datetime
@@ -152,6 +155,9 @@ def get_job(
         build_id=job.build_id,
         status=job.status,
         attempts=job.attempts,
+        max_attempts=job.max_attempts,
+        heartbeat_at=job.heartbeat_at,
+        lease_expires_at=job.lease_expires_at,
         error_code=job.error_code,
         error_summary=job.error_summary,
         created_at=job.created_at,

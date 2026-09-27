@@ -1,4 +1,4 @@
-"""Run exactly one trusted local ingestion worker; recovery is not implemented."""
+"""Run one ingestion worker with renewable leases and bounded recovery."""
 
 import argparse
 import json
@@ -38,9 +38,17 @@ def main(argv=None):
         "--once", action="store_true", help="Process at most one job and exit"
     )
     parser.add_argument("--poll-seconds", type=float, default=1.0)
+    parser.add_argument("--lease-seconds", type=float, default=60.0)
+    parser.add_argument("--heartbeat-seconds", type=float, default=10.0)
     args = parser.parse_args(argv)
     if not math.isfinite(args.poll_seconds) or not 0 < args.poll_seconds <= 60:
         parser.error("--poll-seconds must be finite and between 0 and 60")
+    if (
+        not math.isfinite(args.lease_seconds)
+        or not math.isfinite(args.heartbeat_seconds)
+        or not 0 < args.heartbeat_seconds < args.lease_seconds
+    ):
+        parser.error("require 0 < heartbeat-seconds < lease-seconds, both finite")
     engine = None
     try:
         settings = load_settings()
@@ -54,13 +62,15 @@ def main(argv=None):
                 factory,
                 settings.upload_storage_dir,
                 lambda profile: embedding_client(settings, profile),
+                lease_seconds=args.lease_seconds,
+                heartbeat_interval=args.heartbeat_seconds,
             )
             if result is not None:
                 print(json.dumps(result), flush=True)
             if args.once:
                 if result is None:
                     print(json.dumps({"status": "idle"}), flush=True)
-                return 1 if result and result["status"] == "failed" else 0
+                return 1 if result and result["status"] != "succeeded" else 0
             if result is None:
                 time.sleep(args.poll_seconds)
     except KeyboardInterrupt:
