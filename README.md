@@ -330,3 +330,15 @@ uv run --locked pytest -q tests/test_document_lifecycle.py
 trace 包含策略、阶段/总耗时、候选及引用 ID、模型计数/usage 和失败类型；默认不保存问题、提示词、答案或原文。成本只有在配置有效的 `TRACE_PRICES` 且 usage 完整时才估算，否则为 null。`X-Trace-Status=unavailable` 明确表示本次未能保存。
 
 PowerShell 命令、价格格式、事件结构及一次实际离线请求的耗时分析见 [trace 说明](docs/traces.md)。验收：在 backend 和已配置的临时数据库环境执行 `uv run --locked pytest -q tests/test_traces.py`。
+
+## 只读 Agent 工具（第 23 步）
+
+`app.agent.tools.KnowledgeTools` 提供 `search_knowledge(query, top_k)` 和 `read_chunks(chunk_ids)`；后端每个提问创建独立实例并注入只读身份与知识库上下文。每次调用重新鉴权，read 只读取最近一次检索实际返回且仍有效的块。参数 schema、返回状态、正文与序列化预算见 [工具说明](docs/agent_tools.md)。本步没有 Agent 循环或新的 HTTP 接口。
+
+在 backend 目录配置专用 `TEST_POSTGRES_ADMIN_URL` 后验收：
+
+```powershell
+uv run --locked pytest -q tests/test_agent_tools.py
+```
+
+测试使用真实临时 PostgreSQL 与 fake Embedding，不代表真实检索或 Agent 效果。下一步编排须由新的编号任务启动。

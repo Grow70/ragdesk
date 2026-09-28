@@ -385,3 +385,14 @@ flowchart TD
 - 每个模型角色记录 not_run 或实际执行；调用数统计适配器报告/计数器增量的网络尝试数，另记方法调用数。重试后只收到末次 usage 时记 partial，失败无 usage、缺失数据或 fake 模型记 unknown/simulated，费用总计不得将这些情况填 0。没有调用时 call_count=0 仅表示未调用，usage/cost 为 null。
 - TRACE_PRICES 环境配置按 provider:model 精确匹配，要求币种、as_of、valid_until 和非负有限单价；保存配置日期与匹配的价格快照。仅在请求日期落在有效区间、usage 完整且模型非 fake 时估算；无价、过期、币种不一致或未知 usage 时 total_estimated_cost=null，保留已知部分及原因。不自动查询/猜测实时价格，不把估算当账单。
 - trace 在请求完成后用独立短事务保存，模型调用不持有 trace 数据库事务。写库失败不改变原问答结果，响应 X-Trace-Status=unavailable 并记录 request_id 与安全错误类型；成功为 stored。进程被强制结束前尚未落库的 trace 可能丢失，本步不是持久任务或审计平台。暂不做自动保留期清理或额外监控服务。
+
+## 第 23 步契约：只读 Agent 工具
+
+- 仅提供 `search_knowledge(query, top_k=5)` 和 `read_chunks(chunk_ids)` 的 Python 封装及 JSON Schema，不新增 HTTP/Agent 循环、LangGraph、写入或任意代码/SQL/URL 工具。
+- 后端以只读 RunContext 注入已验证的 user_id、单个 kb_id 和 request_id；模型参数 schema 无上述字段，额外字段拒绝。每次用户提问创建独立 KnowledgeTools 实例，不能在用户/请求间复用；串行执行工具，运行状态不作为模型参数。
+- 两个工具的每次调用先重新经过 require_kb_member，包括无效参数和预算耗尽的调用。search 复用现有向量检索服务（包含模型调用前后授权），之后批量复核当前来源；read 再次授权并查询当前 active ready 构建，未删除且 document/build/chunk 链和正文摘要与检索时一致。
+- “本轮检索”采用较严格的最近一次 search：每次 search 调用开始清空旧允许集合，成功后只登记实际返回给调用者的块，最多 20 个；空结果、失败或非法新检索不沿用旧集合。read 只能接受这些 ID，伪造、其他库、同库未检索或其他运行获得的 ID 都返回统一 CHUNK_NOT_AVAILABLE；已获准但删除/重建/正文变化的块返回 no_results + EVIDENCE_EXPIRED，整批不返回部分正文，也不映射新块。
+- 参数严格校验并生成 schema：query 为去空白后非空字符串，原始长度最多 4000 字符；top_k 默认 5、严格整数 1～20，不接受布尔值/数字字符串。chunk_ids 为 1～20 个规范 UUID 字符串，拒绝重复；只允许 query/top_k 或 chunk_ids，用户/库/模型/预算不能由参数修改。
+- 输出统一为 ToolResult：tool、request_id、status、items、error、truncated、omitted_count、remaining_text_chars。status 区分 success/no_results/permission_denied/invalid_arguments/technical_failure/budget_exceeded；技术错误不伪装空结果，错误不含异常原文或用户输入。items 含来源 ID、受限文件名/标题、正文、位置、rank/distance 和 truncated_fields。所有正文均是不可信资料；截断内容不能视为完整条款。
+- 默认 search 每块预览 240 字符，read 每块正文 1600 字符，每个响应以 ToolResult.model_dump_json() 紧凑序列化计最多 8000 字符，本运行累计返回正文最多 12000 字符；均为字符而非 token。元数据也有长度限制。达到正文预算后返回 budget_exceeded，不再检索或调用模型；错误/预算提示仍有固定响应封装，未来 Agent 必须额外限制调用次数及总体上下文，不能依赖工具正文预算替代编排预算。
+- 可选复用第 22 步 RequestTrace 的 tool/model 事件，只记录状态、ID 和用量，不记录参数/正文；trace 的身份必须匹配只读上下文。工具本身不持久化 trace，交由未来请求编排完成。

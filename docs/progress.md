@@ -197,3 +197,17 @@
 - 遗留边界：trace 在响应生成后、独立短事务保存；total_ms 不包含 trace 写库和网络发送。写库失败不会改变问答结果，X-Trace-Status 明确 unavailable；强制退出前未保存的请求可能丢失。尚未实现自动保留期清理，数据会随请求累积。未运行真实模型，不给出真实调用费用或延迟结论；历史偶发认证 401 仍为独立未定位问题。
 - 全量验证与清理：在专用 ragdesk-step22-pg 和随机临时库全量运行 **231 passed, 2 skipped, 1 warning（84.42 秒）**，新增 trace 23 项全通过；两项跳过为未配置的真实模型验证，警告为既有 TestClient 弃用提示。本次未复现历史偶发 401，未修改认证。迁移仅在临时库升级/回退，已有用户数据未操作。随机库由 fixture 清理，专用容器在本步结束时停止并自动移除；未 push 或部署。
 - 下一步入口：等待新的编号任务；已有环境先显式升级到 0006 并重启 API，按 docs/traces.md 查看本人的请求或管理员授权范围内的 trace。不自动引入 Agent、监控平台或调整检索策略。
+
+## 第 23 步：只读 Agent 工具（2026-09-28）
+
+- 已完成：新增 agent/contracts.py、agent/tools.py、agent/__init__.py 和 services/tool_sources.py，共 4 个主要实现文件。仅封装 search_knowledge/read_chunks，复用向量检索、当前来源查询和 require_kb_member；没有 Agent 循环、新 HTTP、写入工具或策略调整。先补充架构契约及权限/错误用例，再实现工具。
+- 安全与有效性：后端 frozen RunContext 注入已验证用户与单库；严格参数 schema 排除身份字段。所有调用重新授权，read 只接受同一运行最近一次检索实际输出且仍为 active ready 的块，复核来源链和正文哈希。删除、重建、撤权、伪造或跨库 ID 均不能读出正文；批量验证失败不返回部分内容。
+- 返回与预算：明确 success/no_results/permission_denied/invalid_arguments/technical_failure/budget_exceeded；默认预览 240、读取 1600、紧凑序列化响应 8000、累计正文 12000 字符。限制文件名/标题，记录截断及省略数量；预算和允许集合每请求独立。可选接入现有 tool/model trace 事件，不保存工具参数或正文，不在工具内持久化 trace。
+- 定向验证：真实专用 PostgreSQL+pgvector、随机临时库与 fake Embedding，**21 passed, 1 warning（10.32 秒）**。覆盖正常检索/读取、跨库/伪造/未检索 ID、成员移除（含 Embedding 期间）、超长 query、越界/非法 top_k、删除和重建失效、正文变化、最新检索集合、失败分类、序列化与累计预算、trace 元数据。未调用真实 API，不宣称 Agent 或语义效果提升。
+- 修复记录：初次定向测试 20 passed / 1 failed，失败为重建测试夹具缺少位置字段触发 ck_chunks_locator；上一轮修复因自动审批用量限制未执行。本次首次重试因系统无 python 别名仍未写入，后改用项目虚拟环境补齐 page_number=1，通过全部 21 项。同步修正一条超长源码行；预算计算先检查完整候选，避免移除截断标记时 JSON 长度变化导致不必要截断。
+- 全量回归：**251 passed, 1 failed, 2 skipped, 1 warning（100.60 秒）**。失败为既有 test_delete_hides_every_read_and_allows_new_upload 的成员删除请求预期 403 却收到 401；第 23 步全部通过。历史进度已有同类偶发认证问题，本次检查到失败发生在 HTTP 认证路径，此路径未接入新工具；根因尚未定位，不修改认证、不把全量报告为通过。两项跳过为真实模型验证，警告为既有 TestClient 弃用提示。原始输出保存于忽略目录 artifacts/validation/step23/。
+- 工程检查：ruff check 通过；ruff format --check 共 94 文件通过；uv lock --check 解析 50 个包通过；两个工具的参数与返回 JSON Schema 均通过 Draft202012Validator.check_schema；git diff --check 通过。无新增依赖或迁移，沿用 uv.lock；官方依据及可复制 PowerShell 验收命令见 docs/agent_tools.md，README 已同步。
+- 遗留边界：正文按字符限额而非 token，固定响应封装仍需未来调用次数/总上下文预算；frozen 上下文不是任意宿主 Python 代码的沙箱。只有本次检索返回的 ID 可读，来源过期需重新搜索；已返回的文本不能追回。没有真实模型验证，也没有新增 Agent 编排。
+- 下一步入口：等待新的编号任务。第 23 步直接工具测试已通过；后续若启动编排，应复用同一请求的工具实例、明确总调用预算并保存 trace，同时跟踪既有偶发认证 401。不会自动开始下一步。
+- 失败用例复查：不修改任何认证/文档代码，单独重跑上述用例得到 **1 passed, 1 warning（2.11 秒）**（lifecycle-recheck.txt）。单次重跑通过不能证明偶发 401 已修复，保留全量失败结论和遗留问题。
+- 清理：fixture 已清理随机测试库；仅停止本步创建的 ragdesk-step23-pg 专用容器（--rm 自动移除），未操作已有用户数据库，未提交、push 或部署。
