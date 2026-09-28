@@ -342,3 +342,15 @@ uv run --locked pytest -q tests/test_agent_tools.py
 ```
 
 测试使用真实临时 PostgreSQL 与 fake Embedding，不代表真实检索或 Agent 效果。下一步编排须由新的编号任务启动。
+
+## 单次工具决策图（第 24A 步）
+
+`app.agent.graph.run_once` 使用 LangGraph 让模型决定零次或一次只读工具调用，然后复用已有证据与引用校验生成结果。没有回边或自动循环；身份从后端 runtime context 注入。新增原生 OpenAI tool calling 适配器和 fake 决策模型，真实接口尚未验证。
+
+先在 backend 执行 `uv sync --locked`，配置专用 `TEST_POSTGRES_ADMIN_URL` 后验收：
+
+```powershell
+uv run --locked pytest -q tests/test_agent_graph.py tests/test_agent_tools.py tests/test_answers.py
+```
+
+状态字段、读取分支的前置候选、deadline 边界和后端调用示例见 [单次图说明](docs/agent_graph.md)。现有 HTTP 问答未切换成 Agent；本步不提供多轮自主检索或效果提升结论。

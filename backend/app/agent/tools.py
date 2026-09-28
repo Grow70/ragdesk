@@ -1,6 +1,7 @@
 """Two request-scoped read-only tools. No agent loop or dynamic execution."""
 
 from contextlib import nullcontext
+from dataclasses import replace
 from threading import Lock
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from app.agent.contracts import (
     ToolResult,
 )
 from app.llm.contracts import ModelError
+from app.retrieval.vector import RetrievedChunk
 from app.services import retrieval
 from app.services.knowledge_bases import NotFound, require_kb_member
 from app.services.tool_sources import ChunkPermit, EvidenceExpired, read_permitted
@@ -47,11 +49,84 @@ class KnowledgeTools:
         self._remaining = self._limits.total_text_chars
         self._allowed: dict[UUID, ChunkPermit] = {}
         self._trace = trace
+        self._last_items = []
+        self._graph_claimed = False
         self._lock = Lock()  # Serialize mutable per-run permits and output budget.
 
     @property
     def context(self):
         return self._context
+
+    def authorize(self):
+        with self._factory() as session:
+            require_kb_member(session, self.context.user_id, self.context.kb_id)
+
+    def claim_graph(self, trace):
+        """One backend graph invocation per request-scoped tool instance."""
+        with self._lock:
+            if self._graph_claimed:
+                raise ValueError("Tool instance already used by a graph")
+            if (trace.user_id, trace.kb_id, trace.request_id) != (
+                self.context.user_id,
+                self.context.kb_id,
+                self.context.request_id,
+            ):
+                raise ValueError("Trace identity must match the tool context")
+            if self._trace is not None and self._trace is not trace:
+                raise ValueError("Use the same request trace as the tools")
+            self._trace = trace
+            self._graph_claimed = True
+
+    def evidence_snapshot(self):
+        with self._lock:
+            self.authorize()
+            return [item.model_copy(deep=True) for item in self._last_items]
+
+    def validated_sources(self, evidence):
+        """Recheck original source hashes and return only the exposed excerpts."""
+        with self._lock:
+            self.authorize()
+            chunks = list(evidence.values())
+            if not chunks:
+                return {}
+            if any(chunk.chunk_id not in self._allowed for chunk in chunks):
+                raise EvidenceExpired()
+            sources = read_permitted(
+                self._factory,
+                self.context.user_id,
+                self.context.kb_id,
+                [self._allowed[chunk.chunk_id] for chunk in chunks],
+            )
+            result = {}
+            for source, chunk in zip(sources, chunks, strict=True):
+                if (
+                    source.document_id != chunk.document_id
+                    or source.build_id != chunk.build_id
+                    or not chunk.text
+                    or not source.snippet.startswith(chunk.text)
+                ):
+                    raise EvidenceExpired()
+                result[source.chunk_id] = replace(source, snippet=chunk.text)
+            return result
+
+    def evidence_chunks(self, items):
+        chunks = [
+            RetrievedChunk(
+                chunk_id=item.chunk_id,
+                document_id=item.document_id,
+                build_id=item.build_id,
+                knowledge_base_id=self.context.kb_id,
+                document_name=item.document_name,
+                text=item.text,
+                page_number=item.page_number,
+                heading_path=item.heading_path,
+                distance=item.distance,
+                rank=item.rank,
+            )
+            for item in items
+        ]
+        self.validated_sources({str(c.chunk_id): c for c in chunks})
+        return chunks
 
     def search_knowledge(self, query, top_k=5) -> dict:
         return self.call("search_knowledge", {"query": query, "top_k": top_k})
@@ -83,6 +158,7 @@ class KnowledgeTools:
         with self._lock:
             if tool == "search_knowledge":
                 self._allowed.clear()
+                self._last_items = []
             with self._stage(f"tool.{tool or 'unknown'}", "tool") as event:
                 try:
                     with self._factory() as session:
@@ -127,6 +203,12 @@ class KnowledgeTools:
                         "TOOL_EXECUTION_FAILED",
                         "Tool execution failed",
                     )
+                if result.status == "success":
+                    self._last_items = [
+                        item.model_copy(deep=True) for item in result.items
+                    ]
+                elif result.status in {"permission_denied", "no_results"}:
+                    self._last_items = []
                 if event is not None:
                     event["status"] = (
                         "complete"

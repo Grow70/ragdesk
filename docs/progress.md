@@ -211,3 +211,17 @@
 - 下一步入口：等待新的编号任务。第 23 步直接工具测试已通过；后续若启动编排，应复用同一请求的工具实例、明确总调用预算并保存 trace，同时跟踪既有偶发认证 401。不会自动开始下一步。
 - 失败用例复查：不修改任何认证/文档代码，单独重跑上述用例得到 **1 passed, 1 warning（2.11 秒）**（lifecycle-recheck.txt）。单次重跑通过不能证明偶发 401 已修复，保留全量失败结论和遗留问题。
 - 清理：fixture 已清理随机测试库；仅停止本步创建的 ragdesk-step23-pg 专用容器（--rm 自动移除），未操作已有用户数据库，未提交、push 或部署。
+
+## 第 24A 步：单次工具决策 LangGraph（2026-09-28）
+
+- 已完成：先定义架构契约和安全/终止测试，再新增 agent/decision.py、agent/graph.py，修改 agent/tools.py 和 services/answers.py（4 个 Python 实现文件，另更新依赖声明/锁文件）。图是 START→decide→可选 execute→finalize→END，无回边；不新增 HTTP 或自动循环。run_once 是可信后端入口，状态含问题、证据、工具/模型调用计数、deadline、final_result，身份来自 frozen runtime context。
+- 决策：OpenAIToolDecisionClient 复用现有 OpenAI HTTP 适配器的超时、有限重试和配置，原生 Chat Completions function tools 使用 auto、parallel_tool_calls=false、strict。后端双重拒绝未知工具、多调用、错误结构/JSON、重复 JSON 键、非法参数与身份字段。模型不调用时丢弃其自然语言；FakeDecisionClient 支持固定输出和故障注入，不能绕过图校验。
+- 证据与权限：工具内保存最近输出快照，图不接受模型或调用方注入 evidence。决策前、工具调用及最终生成前后重新授权并复核 active ready 来源与原始正文哈希。首次选择 read 无登记候选时拒绝；成功 read 测试先由可信后端显式预检索同一工具实例，不将这次准备伪装为图自主行为。最终生成提取复用第 15 步上下文、引用校验和 Citation 拼装；引用只返回工具实际提供的片段，无证据不调用 Chat。
+- 终止与 trace：一工具实例只允许一次图调用；状态 tool_call_count 为 0/1，model_call_count 计本图模型方法调用（包含 Embedding，网络重试次数另记 trace）。默认 deadline 60 秒，检查外部调用边界并丢弃迟到结果，同步网络调用不能被强制取消。权限/技术失败返回 error 且 final_result=null，不冒充拒答，清除成功工具正文和最终引用。trace 仅记录合法工具名、参数长度/数量摘要、结果数及状态，不含思维链/正文；图显式关闭 LangSmith tracing，不使用 checkpointer 或监控服务。
+- 定向测试：首次 **70 passed（30.94 秒）**，覆盖新增图分支、原 Agent 工具与固定 RAG 回归，无测试失败。静态检查先修复一处 import 排序与测试 lambda 赋值。复核后补充既有证据直接终止、失效来源在决策前阻止、相关片段仍不足、最终 Chat 超时四项；并在模型发送前复查 deadline，权限/超时失败清除状态中的成功工具正文。
+- 最终全量验证：专用 ragdesk-step24a-pg、随机临时数据库，**292 passed, 2 skipped（114.50 秒）**；本步 test_agent_graph.py 共 40 项全部通过。覆盖模型实际选择搜索参数、已有候选 read、无工具/空库、非法工具与参数/结构/多调用、撤权（决策和 Chat 期间）、删除、假引用、截断及恶意资料提示边界、可控时钟超时、调用次数与 trace 脱敏、原生 HTTP 请求/响应契约及不重试坏输出。两项跳过为真实模型验证；本次未复现既有偶发 401，不宣称该历史问题已修复。无真实模型或收费请求，不能当成自主检索效果实验。
+- 工程验证：ruff check、ruff format --check（97 文件）、uv lock --check（77 包）、git diff --check 通过；两个提供商工具参数 schema 均通过 JSON Schema 结构检查。实际编译图的 Mermaid 已检查，无回边。新增 LangGraph 1.2.12，锁定完整传递依赖；原包版本未更新，新传递依赖 httpx2 使 Starlette 不再发出此前 httpx 弃用提示。依据已查询的 LangGraph Graph API/Quickstart 与 OpenAI Function calling/GPT-4.1 mini 官方文档，链接及配置说明见 docs/agent_graph.md。
+- 文档与产物：README、architecture、单次图说明同步；PowerShell 可复制命令和后端工厂注入示例见 docs/agent_graph.md。定向/全量原始结果保留于忽略目录 artifacts/validation/step24a/。没有记录私有思维链，完整图 state 含正文，仅供可信后端使用，不应直接公开或持久化。
+- 遗留边界：真实 tool calling 接口未验证；离线 HTTP 与 fake 只验证协议、分支、安全控制，不能证明模型工具选择质量或所有提示注入防护。引用有效不等于结论正确，仍需人工评估。deadline 不是强制网络取消，截断片段可能缺少例外条款；未来宿主需负责 trace 保存和错误响应映射，本步没有公共 Agent API。
+- 下一步入口：等待新的编号任务。本步单次决策与工具测试通过，不自动增加循环、重试决策、跨请求记忆或调整检索策略。已有环境先 uv sync --locked；继续追踪历史偶发认证 401，不扩大本步范围。
+- 清理：测试 fixture 清理随机库，专用 ragdesk-step24a-pg 已停止并通过 --rm 自动移除；未操作既有用户数据库，未 commit、push 或部署。

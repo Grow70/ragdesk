@@ -396,3 +396,15 @@ flowchart TD
 - 输出统一为 ToolResult：tool、request_id、status、items、error、truncated、omitted_count、remaining_text_chars。status 区分 success/no_results/permission_denied/invalid_arguments/technical_failure/budget_exceeded；技术错误不伪装空结果，错误不含异常原文或用户输入。items 含来源 ID、受限文件名/标题、正文、位置、rank/distance 和 truncated_fields。所有正文均是不可信资料；截断内容不能视为完整条款。
 - 默认 search 每块预览 240 字符，read 每块正文 1600 字符，每个响应以 ToolResult.model_dump_json() 紧凑序列化计最多 8000 字符，本运行累计返回正文最多 12000 字符；均为字符而非 token。元数据也有长度限制。达到正文预算后返回 budget_exceeded，不再检索或调用模型；错误/预算提示仍有固定响应封装，未来 Agent 必须额外限制调用次数及总体上下文，不能依赖工具正文预算替代编排预算。
 - 可选复用第 22 步 RequestTrace 的 tool/model 事件，只记录状态、ID 和用量，不记录参数/正文；trace 的身份必须匹配只读上下文。工具本身不持久化 trace，交由未来请求编排完成。
+
+## 第 24A 步契约：单次工具决策图
+
+- 新增独立 Python `run_once` 入口，LangGraph 的 START → decide →（execute 或 finalize）→ finalize → END 无回边；错误直接 END。模型决定工具名称和参数，后端不固定先搜索。暂不新增 HTTP、自动循环、checkpointer 或远程监控。
+- 状态包含 original_question、evidence、tool_call_count、model_call_count、deadline、final_result，并有 decision/tool_result/error。身份沿用 frozen RunContext，通过 LangGraph 的只读 runtime context 注入；模型仅看到问题、已授权的受限证据和两个参数 schema，不能提交状态更新。
+- 使用既有 OpenAI Chat Completions 原生 function tool calling；auto + parallel_tool_calls=false、strict schema。后端再次拒绝未知工具、多个调用、结构错误、非法参数和身份字段。无调用时丢弃决策模型的自然语言，只有授权证据能进入最终生成；无证据直接 insufficient_evidence。
+- 每次图最多执行一次工具、一次决策模型、一次最终 Chat；Embedding 由搜索工具按原规则调用。model_call_count 计图执行期间模型方法调用次数（含 Embedding），供应商重试次数另由 trace 的 call_count 记录。工具实例只能进入该图一次，避免通过重复 invoke 变成隐式循环。
+- 冷启动没有候选，read 必须拒绝。可信后端可以在同一请求内先显式检索，再把同一个工具实例交给图；已有候选只从工具内部快照取得、重新验证，不接受调用方或模型注入 evidence。该预备搜索不伪装为图自主执行，也不计入本次图的调用计数。
+- 工具结果进入状态；最终生成提取并复用第 15 步上下文与引用校验。只向模型提供工具实际返回的截断片段，引用片段也不扩充到未提供的全文。生成前后重查当前成员、来源链、active ready 构建和原正文摘要；任何变化拒绝整次回答。合法引用仅证明来源有效，不证明结论被证据蕴含。
+- deadline 使用后端 monotonic 时钟，节点与外部调用前后检查；超时结果丢弃且停止后续调用。同步实现无法强制中断已发出的网络调用，底层仍依赖连接/读取超时；不宣称严格墙钟取消。
+- trace 记录合法工具名、query 字符数/top_k 或 chunk_id 数量的参数摘要、结果数、状态/安全错误码；不记录参数原文、资料正文或私有思维链。传入身份匹配的现有 RequestTrace；不默认开启第三方遥测或保存图的完整状态。
+- 验收先定义：search 正常、同请求已有候选 read、无调用与空检索终止；未知工具/参数/多调用/错误 JSON 拒绝且不执行；伪造块、撤权和删除失败；无证据不调用最终 Chat、假引用失败；deadline/模型失败终止；trace 无正文且计数正确。真实 API 未运行时明确记录未验证。

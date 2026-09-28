@@ -199,8 +199,50 @@ def answer_question(
         trace["retrieved_chunks"] = [asdict(chunk) for chunk in chunks]
     if request_trace is not None:
         request_trace.candidates_from(chunks)
+    return answer_from_chunks(
+        factory,
+        user_id,
+        kb_id,
+        question,
+        chunks,
+        chat_factory,
+        request_id,
+        budget=budget,
+        trace=trace,
+        request_trace=request_trace,
+    )
+
+
+def answer_from_chunks(
+    factory,
+    user_id,
+    kb_id,
+    question,
+    chunks,
+    chat_factory,
+    request_id,
+    *,
+    budget=ContextBudget(),
+    trace=None,
+    request_trace=None,
+    source_validator=None,
+    evidence_truncated=False,
+) -> AnswerResult:
+    """Shared grounded generation; callers supply authorized, bounded evidence.
+
+    source_validator may validate tool excerpts against their registered full-source
+    hashes. It returns backend-owned Source records containing only supplied text.
+    """
+
+    def stage(name):
+        return request_trace.stage(name) if request_trace is not None else nullcontext()
+
     with stage("context"):
         messages, evidence = build_context(question, chunks, budget)
+        if evidence_truncated:
+            payload = json.loads(messages[1]["content"])
+            payload["evidence_omitted"] = True
+            messages[1]["content"] = _json(payload)
     if request_trace is not None:
         request_trace.evidence_from(evidence)
     if trace is not None:
@@ -232,24 +274,27 @@ def answer_question(
             close()
     # Revalidate every supplied source: even an uncited source may affect the answer.
     with stage("source_validation"):
-        with factory() as session:
-            require_kb_member(session, user_id, kb_id)
-            sources = current_sources(
-                session, kb_id, [chunk.chunk_id for chunk in evidence.values()]
-            )
-            for chunk in evidence.values():
-                source = sources.get(chunk.chunk_id)
-                if (
-                    source is None
-                    or source.build_id != chunk.build_id
-                    or source.document_id != chunk.document_id
-                    or source.snippet != chunk.text
-                ):
-                    raise AnswerError(
-                        "EVIDENCE_CHANGED",
-                        409,
-                        "Evidence changed; submit the question again",
-                    )
+        if source_validator is not None:
+            sources = source_validator(evidence)
+        else:
+            with factory() as session:
+                require_kb_member(session, user_id, kb_id)
+                sources = current_sources(
+                    session, kb_id, [chunk.chunk_id for chunk in evidence.values()]
+                )
+                for chunk in evidence.values():
+                    source = sources.get(chunk.chunk_id)
+                    if (
+                        source is None
+                        or source.build_id != chunk.build_id
+                        or source.document_id != chunk.document_id
+                        or source.snippet != chunk.text
+                    ):
+                        raise AnswerError(
+                            "EVIDENCE_CHANGED",
+                            409,
+                            "Evidence changed; submit the question again",
+                        )
     citations = []
     for citation_id in draft["citation_ids"]:
         source = sources[evidence[citation_id].chunk_id]
