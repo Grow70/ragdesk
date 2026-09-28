@@ -23,21 +23,48 @@ class Decision(BaseModel):
     tool_calls: list[ToolCall] = Field(max_length=1)
 
 
-def validate_decision(content) -> Decision:
+class ClarificationArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    missing_fields: list[
+        Literal["product", "time_range", "scenario", "policy", "other"]
+    ] = Field(min_length=1, max_length=5)
+
+
+class LoopCall(ToolCall):
+    name: Literal["search_knowledge", "read_chunks", "request_clarification"]
+
+
+class LoopDecision(Decision):
+    tool_calls: list[LoopCall] = Field(max_length=1)
+
+
+def validate_decision(content, *, allow_clarification=False) -> Decision:
     try:
-        result = Decision.model_validate(content)
+        result = (LoopDecision if allow_clarification else Decision).model_validate(
+            content
+        )
         for call in result.tool_calls:
             schema = (
                 SearchArguments if call.name == "search_knowledge" else ReadArguments
             )
+            if call.name == "request_clarification":
+                schema = ClarificationArguments
             call.arguments = schema.model_validate(call.arguments).model_dump()
         return result
     except (ValidationError, TypeError, ValueError):
         raise ModelError("MODEL_INVALID_TOOL_CALL") from None
 
 
-def provider_tools():
+def provider_tools(*, allow_clarification=False):
     definitions = tool_definitions()
+    if allow_clarification:
+        definitions.append(
+            {
+                "name": "request_clarification",
+                "description": "End the run and ask for missing conditions.",
+                "parameters": ClarificationArguments.model_json_schema(),
+            }
+        )
     result = []
     for definition in definitions:
         schema = definition["parameters"]
@@ -77,13 +104,15 @@ class DecisionClient(Protocol):
 class OpenAIToolDecisionClient(OpenAIChatClient):
     """Reuses existing HTTP timeouts, credentials, usage and bounded retries."""
 
+    allow_clarification = False
+
     def decide(self, messages: list[dict]) -> ChatResult:
         payload, attempts, elapsed = self._post(
             "/chat/completions",
             {
                 "model": self.model,
                 "messages": messages,
-                "tools": provider_tools(),
+                "tools": provider_tools(allow_clarification=self.allow_clarification),
                 "tool_choice": "auto",
                 "parallel_tool_calls": False,
                 "max_completion_tokens": self.max_completion_tokens,
@@ -118,12 +147,18 @@ class OpenAIToolDecisionClient(OpenAIChatClient):
                         "arguments": json.loads(raw, object_pairs_hook=_object),
                     }
                 )
-            content = validate_decision({"tool_calls": normalized}).model_dump()
+            content = validate_decision(
+                {"tool_calls": normalized}, allow_clarification=self.allow_clarification
+            ).model_dump()
         except ModelError as exc:
             raise ModelError(exc.code, attempts=attempts) from None
         except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
             raise ModelError("MODEL_INVALID_TOOL_CALL", attempts=attempts) from None
         return ChatResult(content, _usage(payload, attempts), elapsed, attempts)
+
+
+class OpenAILoopDecisionClient(OpenAIToolDecisionClient):
+    allow_clarification = True
 
 
 class FakeDecisionClient:

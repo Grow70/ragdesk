@@ -1,5 +1,6 @@
 """One-provider HTTP adapters for embeddings and structured chat output."""
 
+import asyncio
 import json
 import math
 from collections.abc import Callable
@@ -11,6 +12,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
 from app.config import Settings
+from app.llm.budget import ACTIVE_BUDGET, BudgetExceeded
 from app.llm.contracts import ChatResult, EmbeddingResult, ModelError, ModelUsage
 
 _API_ROOT = "https://api.openai.com/v1"
@@ -49,13 +51,23 @@ class _OpenAIClient:
         max_attempts: int = 3,
         http_client: httpx.Client | None = None,
         sleep: Callable[[float], None] = default_sleep,
+        budget_transport: httpx.MockTransport | None = None,
     ):
         if not api_key.strip():
             raise ValueError("OPENAI_API_KEY is required for real model calls")
-        if connect_timeout <= 0 or read_timeout <= 0:
+        if any(
+            not math.isfinite(value) or value <= 0
+            for value in (connect_timeout, read_timeout)
+        ):
             raise ValueError("model timeouts must be positive")
         if type(max_attempts) is not int or not 1 <= max_attempts <= 3:
             raise ValueError("max_attempts must be between 1 and 3")
+        if budget_transport is not None and not isinstance(
+            budget_transport, httpx.MockTransport
+        ):
+            raise ValueError("Budget transport injection is for offline tests only")
+        self._budget_transport = budget_transport
+        self._custom_http = http_client is not None
         self._api_key = api_key
         self._timeout = httpx.Timeout(
             connect=connect_timeout,
@@ -73,16 +85,54 @@ class _OpenAIClient:
         if self._owns_http:
             self._http.close()
 
+    async def _budget_post(self, path, body, budget):
+        # No custom transport/SDK may hide retries inside a counted attempt.
+        if self._custom_http and self._budget_transport is None:
+            raise ModelError("UNBUDGETED_MODEL_CLIENT")
+        transport = self._budget_transport or httpx.AsyncHTTPTransport(retries=0)
+        remaining = budget.remaining()
+        timeout = httpx.Timeout(
+            **{
+                key: min(value, remaining)
+                for key, value in self._timeout.as_dict().items()
+            }
+        )
+        try:
+            async with asyncio.timeout(remaining):
+                async with httpx.AsyncClient(
+                    transport=transport, follow_redirects=False
+                ) as client:
+                    return await client.post(
+                        f"{_API_ROOT}{path}",
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                        json=body,
+                        timeout=timeout,
+                    )
+        except TimeoutError:
+            raise BudgetExceeded("AGENT_DEADLINE_TIMEOUT") from None
+
     def _post(self, path: str, body: dict) -> tuple[dict, int, float]:
         start = perf_counter()
+        budget = ACTIVE_BUDGET.get()
+        if budget is not None and self._custom_http and self._budget_transport is None:
+            raise ModelError("UNBUDGETED_MODEL_CLIENT")
         for attempt in range(1, self.max_attempts + 1):
+            if budget is not None:
+                try:
+                    budget.claim_request()
+                except BudgetExceeded as exc:
+                    raise BudgetExceeded(exc.code, attempts=attempt - 1) from None
             self.call_count += 1
             try:
-                response = self._http.post(
-                    f"{_API_ROOT}{path}",
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                    json=body,
-                    timeout=self._timeout,
+                response = (
+                    asyncio.run(self._budget_post(path, body, budget))
+                    if budget
+                    else self._http.post(
+                        f"{_API_ROOT}{path}",
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                        json=body,
+                        timeout=self._timeout,
+                    )
                 )
             except _RETRY_NETWORK_ERRORS as exc:
                 if attempt == self.max_attempts:
@@ -92,15 +142,17 @@ class _OpenAIClient:
                         else "MODEL_NETWORK_ERROR"
                     )
                     raise ModelError(code, attempts=attempt) from None
-                self._sleep(0.2 * 2 ** (attempt - 1))
+                (budget.pause if budget else self._sleep)(0.2 * 2 ** (attempt - 1))
                 continue
             except httpx.RequestError:
                 raise ModelError("MODEL_NETWORK_ERROR", attempts=attempt) from None
 
+            if budget is not None:
+                budget.remaining()
             if response.status_code in _RETRY_STATUSES:
                 if attempt == self.max_attempts:
                     raise ModelError("MODEL_UNAVAILABLE", attempts=attempt)
-                self._sleep(0.2 * 2 ** (attempt - 1))
+                (budget.pause if budget else self._sleep)(0.2 * 2 ** (attempt - 1))
                 continue
             if response.status_code in (401, 403):
                 raise ModelError("MODEL_AUTH_ERROR", attempts=attempt)

@@ -354,3 +354,16 @@ uv run --locked pytest -q tests/test_agent_graph.py tests/test_agent_tools.py te
 ```
 
 状态字段、读取分支的前置候选、deadline 边界和后端调用示例见 [单次图说明](docs/agent_graph.md)。现有 HTTP 问答未切换成 Agent；本步不提供多轮自主检索或效果提升结论。
+
+## 有预算的再次检索（第 24B 步）
+
+`app.agent.loop.run_agent` 允许模型根据工具结果改写查询、补读、澄清或结束。程序最多执行 3 次工具、6 次模型请求（含 Embedding、重试与最终生成），默认 60 秒；限制累计工具上下文并拒绝相同调用。返回 termination_reason，最终复核权限、来源和引用。
+
+在 backend、配置专用测试数据库后运行：
+
+```powershell
+uv run --locked pytest -q tests/test_agent_loop.py
+uv run --locked pytest -q -s tests/test_agent_loop.py::test_failed_retrieval_result_drives_rewrite_then_success
+```
+
+第二条命令打印真实执行的 fake 决策轨迹，不产生模型费用。预算与网络取消边界、后端工厂示例、查询记录规则见 [循环 Agent 说明](docs/agent_loop.md)。真实模型接口与检索效果尚未验证。
