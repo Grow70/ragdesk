@@ -367,3 +367,14 @@ uv run --locked pytest -q -s tests/test_agent_loop.py::test_failed_retrieval_res
 ```
 
 第二条命令打印真实执行的 fake 决策轨迹，不产生模型费用。预算与网络取消边界、后端工厂示例、查询记录规则见 [循环 Agent 说明](docs/agent_loop.md)。真实模型接口与检索效果尚未验证。
+
+## 固定 RAG 与 Agent 的配对评测（第 25 步）
+
+默认只预检已复核条件，不发出 API 请求、不增加工具或改变检索：
+
+```powershell
+cd backend
+uv run --locked python -m app.evaluate_agent
+```
+
+输出逐题 JSONL、配置/索引哈希、统计报告和人工复核模板。当前 dev 15 题仍为 draft，真实对比未运行；退出码 2 和 null 指标如实表示阻塞/未测量。真实运行、费用预算、独立复核和回归命令见 [Agent 评测与安全审查](docs/agent_evaluation.md)。引用合法仍可能伴随错误事实，不能据此报告正确率。
