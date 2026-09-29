@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { api, ApiError, cancelled } from "./api";
 import type { CurrentUser, KnowledgeBase } from "./api";
 import Documents from "./Documents";
+import Question from "./Question";
 
 function Brand() {
   return (
@@ -141,7 +142,9 @@ function Login({ notice }: { notice: string }) {
 }
 
 function Workspace() {
-  const [showDocuments, setShowDocuments] = useState(false);
+  const [view, setView] = useState<"libraries" | "documents" | "question">(
+    "libraries",
+  );
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [selected, setSelected] = useState<KnowledgeBase | null>(null);
@@ -254,13 +257,21 @@ function Workspace() {
           </span>
         </header>
         <div className="workspace-content">
-          {showDocuments && selected ? (
+          {view === "question" && selected ? (
+            <Question
+              key={selected.id}
+              kb={selected}
+              bases={bases}
+              onSelect={(id) => void choose(id)}
+              onBack={() => setView("libraries")}
+            />
+          ) : view === "documents" && selected ? (
             <Documents
               key={selected.id + selected.role}
               kb={selected}
               bases={bases}
               onSelect={(id) => void choose(id)}
-              onBack={() => setShowDocuments(false)}
+              onBack={() => setView("libraries")}
             />
           ) : (
             <>
@@ -361,9 +372,15 @@ function Workspace() {
                       </div>
                       <button
                         className="primary"
-                        onClick={() => setShowDocuments(true)}
+                        onClick={() => setView("documents")}
                       >
                         打开文档
+                      </button>
+                      <button
+                        className="primary"
+                        onClick={() => setView("question")}
+                      >
+                        开始问答
                       </button>
                       <span className="selected-label" role="status">
                         已选择

@@ -282,3 +282,18 @@
 - 产物与边界：安全日志和模拟资料截图位于忽略目录 artifacts/validation/step26b/。夹具清理随机数据库、API/worker/Vite 进程；不提交上传资料或数据库，不 push/部署。自动测试仅 Chromium，PowerShell 命令在文档提供，未在 Windows 原生执行。纯扫描件/复杂 PDF 仍按已有解析契约报错，无 OCR；仅展示已发布切块，不宣称完整解析审阅或真实 RAG 效果。
 - 下一步入口：本步目标已验收，等待新的编号任务。按 docs/frontend_documents.md 启动 API、唯一 worker 与前端即可演示；没有自动进入聊天或其他功能。
 - 环境清理核对：续作收尾执行 docker ps 时 Docker Desktop Linux daemon 的命名管道不存在，不能确认此前 --rm 专用容器是否已移除；未为清理而擅自重启用户 Docker Desktop。随机数据库和测试应用进程已由成功退出的夹具清理。若之后发现容器仍在，可执行 `docker stop ragdesk-step26b-pg`；只操作本步专用容器。此状态不影响已记录的实际测试结果。
+
+## 第 27 步：单轮问答界面（2026-09-29）
+
+- 已完成：新增 Question.tsx 和 services/agent_answers.py，修改前端 api.ts/App.tsx/styles.css 与后端 api/answers.py，合计 6 个主要实现文件；另更新依赖/锁文件、测试和文档。支持当前库输入问题、默认固定 RAG/可选 Agent、状态/Markdown 正文/引用、点击查看受保护原文、Agent 简洁事件、资料不足/澄清/超时/权限失效等状态。没有 SSE、逐 token 输出、聊天历史或跨轮记忆，也没有新增工具/Agent 策略。
+- 契约先行：阅读规则/需求/架构/进度，核对发现 Agent 只有函数入口，先在架构约定 POST /knowledge-bases/{kb_id}/answers 的可选 mode（默认 rag）、安全事件与错误形状，再写 HTTP 权限/错误测试。复用现有 run_agent 的 3 工具/6 模型请求/60 秒、最终引用校验，新增服务只做授权、上下文注入、trace/响应投影和返回前来源复核。额外 user_id/history/工具预算与未知模式均拒绝；Agent 不接受非默认 top_k，内部仍自行选择允许范围内的候选数。
+- 来源与安全：正文/引用来自后端已校验结果；HTTP 返回安全事件最多 3 条、查询摘要最多 160 字，不暴露完整图状态、工具原文或思维链。点击引用由当前库和 document/build/chunk UUID 构造固定路径，不访问任意 source_path；重新鉴权并校验有效构建。404/410 时清空此前打开的原文，不回退旧片段。合法引用仍不自动证明语义支持或事实正确。
+- 界面生命周期：每次只发送 question/mode，新问题清空旧结果/来源/事件；切模式取消当前请求，切库还清空问题，离开/退出取消在途请求并通过序号拒绝迟到回调。客户端问答上限 75 秒，其他接口仍 15 秒；不自动重试问答。取消浏览器等待不承诺撤回后台/供应商调用，固定 RAG 的原有模型超时/重试机制不变。工具事件在普通响应结束后统一展示，未伪装实时进度。
+- 渲染/依赖：查阅 React useEffect、FastAPI response model、react-markdown 官方文档；安装并精确锁定 react-markdown 10.1.0，peer 要求 React/类型 >=18，与项目 19.3 兼容，新增 83 个锁条目；通过比较前后 package-lock 确认既有包版本无变化。使用 skipHtml，无原始 HTML 插件或 dangerouslySetInnerHTML；普通链接/图片仅文本，不自动请求外部资源，原文使用纯文本。后端依赖未变化。
+- 首轮验证：新增 Agent HTTP + 原固定问答/trace 共 **46 passed（19.92 秒）**，出现 6 条 Pydantic 序列化警告，定位为响应扩展时 asdict 把 Citation 转为 dict，改为保留 Citation 对象；未更改校验策略。新增测试工厂字符串的一处长行由静态检查发现并修正。无失败测试，不以警告掩盖类型问题。
+- 浏览器回归：**36 passed（30.3 秒）**，真实 Chromium + 控制 HTTP/时钟，包括原登录/文档 24 项和问答 12 项。覆盖固定/Agent、独立请求体（无 history）、Markdown 排版、原始 HTML/脚本/外链/图片不执行不请求、授权来源实际页码/标题/原文、404/410 清旧片段、不足/澄清、模型校验错误、504、安全 Agent 错误事件、75 秒等待与不重试、切库取消及迟到回答隔离、换模式清来源、空/超长输入、撤权/401 退出、390px 页面无横向溢出。
+- 最终后端与真实闭环：专用 ragdesk-step27-pg、随机临时库，test_agent_http / test_answers / test_traces / test_agent_loop / test_frontend_question 合计 **74 passed（36.59 秒）**，最终无序列化警告。其中新 HTTP 11 项；另真实浏览器全流程 **1 passed（3.6 秒）**，已包含在外层夹具，不重复计数。真实 FastAPI/JWT/数据库/Agent 循环/Vite/Chromium，模型仅在临时测试应用显式注入 fake：同用户固定 RAG→Markdown 与授权原文→Agent→1 工具/4 模型请求记录→切空库清状态并不足→未授权库 404。补验监督器截止：504、trace 不完整、未知 usage/调用观测/费用仍 null。没有真实模型接口或费用调用，不能报告问答效果/Agent 收益。
+- Trace：沿用受保护存储与查看接口，复制已完成或监督器快照的模型/候选/事件，不与仍运行线程共享可变对象；按 HTTP 的有效价格配置重算可估费用。未完成模型观测标 unknown，已知 Agent 请求尝试计数单独记录。权限/证据失效时 HTTP 不返回此前工具摘要；私有 trace 仍按原授权保护。
+- 工程检查：最终 TypeScript + Vite build、全前端 Prettier、4 个本步 Python 文件 ruff check/format、uv lock --check（77 包）、git diff --check 均通过。已检查真实单轮问答截图。没有执行后端全项目回归，结果仅指上述相关测试；浏览器仅 Chromium，PowerShell 命令已提供但未在 Windows 原生执行。
+- 文档/清理：README、architecture、docs/frontend_question.md 同步了接口请求/响应、启动/验收命令、安全与取消边界和面试追问。日志与模拟截图在忽略目录 artifacts/validation/step27/，不记录密码/令牌/浏览器 trace 或视频。成功夹具清理随机数据库与测试应用进程，专用 ragdesk-step27-pg 已停止并通过 --rm 自动移除；不关闭用户 Docker Desktop，不操作已有用户数据，没有 commit/push/公网部署。
+- 遗留边界与下一步入口：真实模型问答/tool calling 效果未验证；来源有效不等于结论正确。当前只支持基础 CommonMark，不增加表格/高亮插件。配置真实后端与兼容索引后可从“开始问答”使用；缺少模型配置明确报错，不自动换 fake。等待新的编号任务，SSE 若需要作为下一小步单独定义。

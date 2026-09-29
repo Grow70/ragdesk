@@ -79,6 +79,127 @@ function documentItem(value: unknown): DocumentItem {
 const documentPath = (kb: string, id?: string) =>
   `/knowledge-bases/${encodeURIComponent(uuid(kb))}/documents${id ? "/" + encodeURIComponent(uuid(id)) : ""}`;
 
+export type AnswerMode = "rag" | "agent";
+export interface SourceChunk {
+  document_id: string;
+  build_id: string;
+  chunk_id: string;
+  document_name: string;
+  snippet: string;
+  page_number: number | null;
+  heading_path: string[];
+  start_line: number | null;
+  end_line: number | null;
+}
+export interface Citation extends SourceChunk {
+  citation_id: string;
+}
+export interface ToolEvent {
+  step: number;
+  tool: "search_knowledge" | "read_chunks";
+  status: string;
+  query_summary: string | null;
+  result_count: number | null;
+}
+export interface AgentSummary {
+  mode: AnswerMode;
+  events: ToolEvent[];
+  termination_reason: string | null;
+  tool_call_count: number | null;
+  model_call_count: number | null;
+}
+export interface AnswerResult extends AgentSummary {
+  status: "answered" | "insufficient_evidence" | "needs_clarification";
+  answer: string;
+  citations: Citation[];
+  request_id: string;
+}
+function sourceChunk(value: unknown): SourceChunk {
+  const d = record(value);
+  if (d.heading_path !== null && !Array.isArray(d.heading_path))
+    throw new Error("Invalid headings");
+  return {
+    document_id: uuid(d.document_id),
+    build_id: uuid(d.build_id),
+    chunk_id: uuid(d.chunk_id),
+    document_name: text(d.document_name, 255),
+    snippet: text(d.snippet, 100000),
+    heading_path: (d.heading_path ?? []).map((h: unknown) => text(h, 4000)),
+    page_number: d.page_number === null ? null : integer(d.page_number),
+    start_line: d.start_line === null ? null : integer(d.start_line),
+    end_line: d.end_line === null ? null : integer(d.end_line),
+  };
+}
+function agentSummary(value: unknown): AgentSummary {
+  const d = record(value);
+  if (d.mode !== "rag" && d.mode !== "agent") throw new Error("Invalid mode");
+  if (!Array.isArray(d.events) || d.events.length > 3)
+    throw new Error("Invalid events");
+  const events = d.events.map((value): ToolEvent => {
+    const e = record(value);
+    if (
+      !["search_knowledge", "read_chunks"].includes(String(e.tool)) ||
+      ![
+        "running",
+        "success",
+        "no_results",
+        "permission_denied",
+        "invalid_arguments",
+        "technical_failure",
+        "budget_exceeded",
+      ].includes(String(e.status))
+    )
+      throw new Error("Invalid event");
+    return {
+      step: integer(e.step),
+      tool: e.tool as ToolEvent["tool"],
+      status: String(e.status),
+      query_summary:
+        e.query_summary === null ? null : text(e.query_summary, 160),
+      result_count: e.result_count === null ? null : integer(e.result_count),
+    };
+  });
+  return {
+    mode: d.mode,
+    events,
+    termination_reason:
+      d.termination_reason === null ? null : text(d.termination_reason, 100),
+    tool_call_count:
+      d.tool_call_count === null ? null : integer(d.tool_call_count),
+    model_call_count:
+      d.model_call_count === null ? null : integer(d.model_call_count),
+  };
+}
+function answerResult(value: unknown): AnswerResult {
+  const d = record(value);
+  if (
+    !["answered", "insufficient_evidence", "needs_clarification"].includes(
+      String(d.status),
+    ) ||
+    !Array.isArray(d.citations) ||
+    d.citations.length > 20
+  )
+    throw new Error("Invalid answer");
+  const citations = d.citations.map((value): Citation => {
+    const c = record(value),
+      id = text(c.citation_id, 20);
+    if (!/^c[1-9][0-9]*$/.test(id)) throw new Error("Invalid citation id");
+    return { ...sourceChunk(value), citation_id: id };
+  });
+  if (
+    (d.status === "answered") !== citations.length > 0 ||
+    new Set(citations.map((c) => c.citation_id)).size !== citations.length
+  )
+    throw new Error("Invalid citations");
+  return {
+    ...agentSummary(value),
+    status: d.status as AnswerResult["status"],
+    answer: text(d.answer, 100000),
+    citations,
+    request_id: text(d.request_id, 128),
+  };
+}
+
 interface Session {
   authenticated: boolean;
   notice: string;
@@ -90,6 +211,7 @@ export class ApiError extends Error {
     public readonly status = 0,
     public readonly requestId?: string,
     public readonly code = "REQUEST_FAILED",
+    public readonly agent?: AgentSummary,
   ) {
     super(message);
   }
@@ -192,7 +314,7 @@ export class ApiClient {
     path: string,
     decode: (value: unknown) => T,
     body?: object,
-    options: { method?: string; signal?: AbortSignal } = {},
+    options: { method?: string; signal?: AbortSignal; timeoutMs?: number } = {},
   ): Promise<T> {
     // Paths are private constants; never send a Bearer credential to an arbitrary URL.
     const login = path === "/auth/session";
@@ -209,7 +331,7 @@ export class ApiClient {
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, 15_000);
+    }, options.timeoutMs ?? 15_000);
     let requestId: string | undefined;
     try {
       const headers: Record<string, string> = { Accept: "application/json" };
@@ -252,10 +374,26 @@ export class ApiClient {
       if (!response.ok) {
         if (response.status === 401 && !login)
           this.logout("登录已过期或失效，请重新登录。");
+        let code = "REQUEST_FAILED",
+          summary: AgentSummary | undefined;
+        try {
+          const d = record(payload),
+            e = record(d.error);
+          if (
+            typeof e.code === "string" &&
+            /^[A-Z][A-Z0-9_]{0,99}$/.test(e.code)
+          )
+            code = e.code;
+          if (d.mode === "agent") summary = agentSummary(d);
+        } catch {
+          /* Errors without an Agent summary remain ordinary HTTP errors. */
+        }
         throw new ApiError(
           failure(response.status, login),
           response.status,
           requestId,
+          code,
+          summary,
         );
       }
       if (timedOut)
@@ -343,6 +481,38 @@ export class ApiClient {
   knowledgeBase(id: string) {
     return this.#request(`/knowledge-bases/${encodeURIComponent(id)}`, base);
   }
+  answer(kb: string, question: string, mode: AnswerMode, signal: AbortSignal) {
+    return this.#request(
+      `/knowledge-bases/${encodeURIComponent(uuid(kb))}/answers`,
+      answerResult,
+      { question, mode },
+      { signal, timeoutMs: 75000 },
+    );
+  }
+  source(kb: string, citation: Citation, signal: AbortSignal) {
+    const ids = [
+      kb,
+      citation.document_id,
+      citation.build_id,
+      citation.chunk_id,
+    ].map((id) => encodeURIComponent(uuid(id)));
+    return this.#request(
+      `/knowledge-bases/${ids[0]}/sources/${ids.slice(1).join("/")}`,
+      (value) => {
+        const source = sourceChunk(value);
+        if (
+          source.document_id !== citation.document_id ||
+          source.build_id !== citation.build_id ||
+          source.chunk_id !== citation.chunk_id
+        )
+          throw new Error("Invalid source chain");
+        return source;
+      },
+      undefined,
+      { signal },
+    );
+  }
+
   documents(kb: string, offset: number, signal: AbortSignal) {
     return this.#request(
       `${documentPath(kb)}?limit=10&offset=${integer(offset)}`,
