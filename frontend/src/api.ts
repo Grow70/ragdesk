@@ -12,6 +12,73 @@ export interface KnowledgeBase {
   created_at: string;
   request_id: string;
 }
+export interface IngestionJob {
+  job_id: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  attempts: number;
+  max_attempts: number;
+  error_code: string | null;
+  error_summary: string | null;
+}
+export interface DocumentItem {
+  document_id: string;
+  file_name: string;
+  status: "uploaded" | "queued" | "processing" | "ready" | "failed";
+  created_at: string;
+  latest_job: IngestionJob | null;
+}
+export interface ChunkPreview {
+  build_id: string | null;
+  total_chunks: number;
+  items: {
+    chunk_id: string;
+    ordinal: number;
+    text: string;
+    truncated: boolean;
+    page_number: number | null;
+    heading_path: string[];
+    start_line: number | null;
+    end_line: number | null;
+    locator_truncated: boolean;
+  }[];
+}
+const integer = (value: unknown): number => {
+  if (!Number.isSafeInteger(value) || (value as number) < 0)
+    throw new Error("Invalid number");
+  return value as number;
+};
+function job(value: unknown): IngestionJob {
+  const d = record(value);
+  if (!["queued", "running", "succeeded", "failed"].includes(String(d.status)))
+    throw new Error("Invalid job");
+  return {
+    job_id: uuid(d.job_id),
+    status: d.status as IngestionJob["status"],
+    attempts: integer(d.attempts),
+    max_attempts: integer(d.max_attempts),
+    error_code: d.error_code === null ? null : text(d.error_code),
+    error_summary: d.error_summary === null ? null : text(d.error_summary),
+  };
+}
+function documentItem(value: unknown): DocumentItem {
+  const d = record(value);
+  if (
+    !["uploaded", "queued", "processing", "ready", "failed"].includes(
+      String(d.status),
+    )
+  )
+    throw new Error("Invalid document");
+  return {
+    document_id: uuid(d.document_id),
+    file_name: text(d.file_name, 255),
+    status: d.status as DocumentItem["status"],
+    created_at: text(d.created_at),
+    latest_job: d.latest_job == null ? null : job(d.latest_job),
+  };
+}
+const documentPath = (kb: string, id?: string) =>
+  `/knowledge-bases/${encodeURIComponent(uuid(kb))}/documents${id ? "/" + encodeURIComponent(uuid(id)) : ""}`;
+
 interface Session {
   authenticated: boolean;
   notice: string;
@@ -68,6 +135,10 @@ function failure(status: number, login: boolean): string {
     return login ? "账号或密码错误，请重试。" : "登录已过期，请重新登录。";
   if (status === 403) return "你没有执行此操作的权限。";
   if (status === 404) return "知识库不存在或你已无权访问，请刷新列表。";
+  if (status === 413) return "文件超过 10 MiB，请选择较小的文件。";
+  if (status === 409)
+    return "当前模型配置与有效索引不兼容，请联系管理员检查后端配置。";
+  if (status === 400) return "文件无效，请检查文件名、编码和实际文件格式。";
   if (status === 422) return "输入格式不正确，请检查后重试。";
   if (status === 429) return "请求过于频繁，请稍后重试。";
   if (status >= 500) return "服务暂时不可用，请稍后重试。";
@@ -121,6 +192,7 @@ export class ApiClient {
     path: string,
     decode: (value: unknown) => T,
     body?: object,
+    options: { method?: string; signal?: AbortSignal } = {},
   ): Promise<T> {
     // Paths are private constants; never send a Bearer credential to an arbitrary URL.
     const login = path === "/auth/session";
@@ -129,6 +201,9 @@ export class ApiClient {
       throw new ApiError("请先登录。", 401, undefined, "CANCELLED");
     const revision = this.#revision;
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) controller.abort();
     this.#requests.add(controller);
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -138,12 +213,18 @@ export class ApiClient {
     let requestId: string | undefined;
     try {
       const headers: Record<string, string> = { Accept: "application/json" };
-      if (body) headers["Content-Type"] = "application/json";
+      if (body && !(body instanceof FormData))
+        headers["Content-Type"] = "application/json";
       if (!login) headers.Authorization = `Bearer ${this.#token}`;
       const response = await fetch(`/api${path}`, {
-        method: body ? "POST" : "GET",
+        method: options.method ?? (body ? "POST" : "GET"),
         headers,
-        body: body ? JSON.stringify(body) : undefined,
+        body:
+          body instanceof FormData
+            ? body
+            : body
+              ? JSON.stringify(body)
+              : undefined,
         signal: controller.signal,
         credentials: "omit",
         cache: "no-store",
@@ -155,7 +236,7 @@ export class ApiClient {
       } catch {
         payload = undefined;
       }
-      if (revision !== this.#revision)
+      if (revision !== this.#revision || options.signal?.aborted)
         throw new ApiError("", 0, undefined, "CANCELLED");
       const headerId = response.headers.get("X-Request-ID");
       if (headerId && /^[\w-]{1,128}$/.test(headerId)) requestId = headerId;
@@ -190,7 +271,7 @@ export class ApiClient {
         );
       }
     } catch (error) {
-      if (revision !== this.#revision)
+      if (revision !== this.#revision || options.signal?.aborted)
         throw new ApiError("", 0, undefined, "CANCELLED");
       if (error instanceof ApiError) throw error;
       throw new ApiError(
@@ -203,6 +284,7 @@ export class ApiClient {
       );
     } finally {
       clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abort);
       this.#requests.delete(controller);
     }
   }
@@ -261,6 +343,116 @@ export class ApiClient {
   knowledgeBase(id: string) {
     return this.#request(`/knowledge-bases/${encodeURIComponent(id)}`, base);
   }
+  documents(kb: string, offset: number, signal: AbortSignal) {
+    return this.#request(
+      `${documentPath(kb)}?limit=10&offset=${integer(offset)}`,
+      (value) => {
+        const d = record(value);
+        if (!Array.isArray(d.items) || d.items.length > 10)
+          throw new Error("Invalid list");
+        return { items: d.items.map(documentItem), total: integer(d.total) };
+      },
+      undefined,
+      { signal },
+    );
+  }
+  document(kb: string, id: string, signal: AbortSignal) {
+    return this.#request(documentPath(kb, id), documentItem, undefined, {
+      signal,
+    });
+  }
+  job(kb: string, id: string, jobId: string, signal: AbortSignal) {
+    return this.#request(
+      `${documentPath(kb, id)}/jobs/${encodeURIComponent(uuid(jobId))}`,
+      job,
+      undefined,
+      { signal },
+    );
+  }
+  upload(kb: string, file: File, signal: AbortSignal) {
+    const body = new FormData();
+    body.append("file", file);
+    return this.#request(documentPath(kb), accepted, body, { signal });
+  }
+  rebuild(kb: string, id: string, signal: AbortSignal) {
+    return this.#request(
+      `${documentPath(kb, id)}/rebuild`,
+      accepted,
+      undefined,
+      { method: "POST", signal },
+    );
+  }
+  deleteDocument(kb: string, id: string, signal: AbortSignal) {
+    return this.#request(
+      documentPath(kb, id),
+      (value) => {
+        const d = record(value);
+        if (
+          d.status !== "deleted" ||
+          uuid(d.document_id) !== id ||
+          !["removed", "missing", "blocked", "pending"].includes(
+            String(d.cleanup_status),
+          )
+        )
+          throw new Error("Invalid deletion");
+        return { cleanup_status: String(d.cleanup_status) };
+      },
+      undefined,
+      { method: "DELETE", signal },
+    );
+  }
+  preview(kb: string, id: string, signal: AbortSignal) {
+    return this.#request(
+      `${documentPath(kb, id)}/preview`,
+      (value): ChunkPreview => {
+        const d = record(value);
+        if (
+          uuid(d.document_id) !== id ||
+          !Array.isArray(d.items) ||
+          d.items.length > 3
+        )
+          throw new Error("Invalid preview");
+        return {
+          build_id: d.build_id === null ? null : uuid(d.build_id),
+          total_chunks: integer(d.total_chunks),
+          items: d.items.map((value) => {
+            const c = record(value);
+            if (
+              !Array.isArray(c.heading_path) ||
+              c.heading_path.length > 6 ||
+              typeof c.truncated !== "boolean" ||
+              typeof c.locator_truncated !== "boolean"
+            )
+              throw new Error("Invalid chunk");
+            return {
+              chunk_id: uuid(c.chunk_id),
+              ordinal: integer(c.ordinal),
+              text: text(c.text, 600),
+              truncated: c.truncated,
+              locator_truncated: c.locator_truncated,
+              page_number:
+                c.page_number === null ? null : integer(c.page_number),
+              heading_path: c.heading_path.map((h) => text(h, 160)),
+              start_line: c.start_line === null ? null : integer(c.start_line),
+              end_line: c.end_line === null ? null : integer(c.end_line),
+            };
+          }),
+        };
+      },
+      undefined,
+      { signal },
+    );
+  }
+}
+
+function accepted(value: unknown) {
+  const d = record(value);
+  if (
+    d.status !== "uploaded" ||
+    !["queued", "running", "succeeded", "failed"].includes(String(d.job_status))
+  )
+    throw new Error("Invalid acceptance");
+  return { document_id: uuid(d.document_id), job_id: uuid(d.job_id) };
 }
 
 export const api = new ApiClient();

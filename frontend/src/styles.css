@@ -780,3 +780,302 @@ input:focus {
     transition: none !important;
   }
 }
+
+/* Document workspace */
+.document-nav,
+.preview-heading,
+.dialog-actions,
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+.document-nav {
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+.document-nav label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.document-nav select {
+  font: inherit;
+  color: inherit;
+  max-width: 250px;
+  padding: 9px;
+  background: #fff;
+  border: 1px solid #dce3db;
+  border-radius: 6px;
+}
+.text-button {
+  border: 0;
+  background: transparent;
+  color: #315943;
+  padding: 8px 0;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.text-button:hover {
+  text-decoration: underline;
+}
+.upload-panel {
+  padding: 24px;
+  background: #eef3eb;
+  border: 1px dashed #b9c9b7;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.upload-panel > div {
+  flex: 1 1 100%;
+}
+.upload-panel h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.upload-panel p {
+  margin: 0;
+  font-size: 13px;
+  color: #657466;
+}
+.file-picker {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  min-width: 0;
+}
+.file-picker input {
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12px;
+}
+.document-list {
+  border: 1px solid #e0e5dc;
+  border-radius: 12px;
+  background: white;
+  overflow: hidden;
+}
+.document-row {
+  padding: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.6fr) 95px;
+  gap: 24px;
+  align-items: start;
+  border-bottom: 1px solid #e9ede5;
+}
+.document-row:last-child {
+  border-bottom: 0;
+}
+.document-info {
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+}
+.document-info > div {
+  min-width: 0;
+}
+.document-info h2 {
+  font-size: 16px;
+  margin: 2px 0 10px;
+  overflow-wrap: anywhere;
+}
+.file-kind {
+  padding: 12px 6px;
+  background: #f3f5ee;
+  border-radius: 6px;
+  color: #647657;
+  font-size: 10px;
+  min-width: 40px;
+  text-align: center;
+}
+.document-id {
+  display: block;
+  font-size: 10px;
+  color: #738077;
+  overflow-wrap: anywhere;
+  margin-top: 8px;
+}
+.document-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.document-actions .secondary {
+  padding: 9px;
+  font-size: 12px;
+}
+.document-state {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 10px;
+}
+.status-badge {
+  font-size: 11px;
+  padding: 5px 9px;
+  background: #edf0e9;
+  border-radius: 5px;
+}
+.status-badge.ready {
+  color: #27563b;
+  background: #e4f0e6;
+}
+.status-badge.processing,
+.status-badge.queued {
+  color: #826020;
+  background: #fff2d6;
+}
+.status-badge.failed {
+  background: #f9e8e4;
+  color: #943e31;
+}
+.job-status {
+  font-size: 12px;
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+.job-status small {
+  display: block;
+  margin-top: 6px;
+  color: #778071;
+}
+.job-status .error {
+  padding: 8px;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.failure-reason {
+  color: #943e31;
+  font-size: 11px;
+  margin: 6px 0;
+}
+.danger {
+  color: #943e31;
+}
+.pagination {
+  justify-content: flex-end;
+  margin-top: 18px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.pagination > span {
+  margin-right: auto;
+}
+.preview-panel {
+  background: #fff;
+  border: 1px solid #dce3d8;
+  border-radius: 12px;
+  padding: 28px;
+  margin-top: 28px;
+}
+.preview-heading h2 {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.preview-heading > div {
+  min-width: 0;
+}
+.preview-heading button {
+  flex-shrink: 0;
+}
+.preview-heading .eyebrow {
+  margin-bottom: 8px;
+}
+.chunk-preview {
+  border-top: 1px solid #e3e8de;
+  margin-top: 20px;
+  padding-top: 12px;
+}
+.chunk-preview h3 {
+  font-size: 13px;
+}
+.chunk-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    13px/1.85 "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
+  color: #3e4b40;
+  background: #f7f8f3;
+  padding: 18px;
+  border-radius: 5px;
+}
+.delete-dialog {
+  border: 1px solid #dce3d8;
+  color: #213a32;
+  border-radius: 14px;
+  padding: 32px;
+  max-width: 480px;
+  width: calc(100% - 32px);
+  box-shadow: 0 24px 80px #18291a30;
+}
+.delete-dialog::backdrop {
+  background: #17291f66;
+}
+.delete-dialog p {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.danger-button {
+  background: #923d30;
+}
+@media (max-width: 1050px) {
+  .document-row {
+    grid-template-columns: minmax(0, 1fr) 95px;
+    gap: 18px;
+  }
+  .document-state {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .document-actions {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+}
+@media (max-width: 550px) {
+  .document-row {
+    padding: 16px;
+    gap: 12px;
+  }
+  .document-info {
+    flex-direction: column;
+  }
+  .file-kind {
+    align-self: flex-start;
+    padding: 6px;
+  }
+  .document-nav label {
+    flex-wrap: wrap;
+  }
+  .file-picker {
+    flex-direction: column;
+    align-items: flex-start;
+    flex-basis: 100%;
+  }
+  .upload-panel,
+  .preview-panel {
+    padding: 18px;
+  }
+  .document-nav select {
+    max-width: 220px;
+  }
+}
+.file-picker {
+  white-space: nowrap;
+}
+.upload-panel > .primary {
+  flex-shrink: 0;
+  padding: 12px 18px;
+}

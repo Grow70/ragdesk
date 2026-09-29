@@ -439,3 +439,12 @@ flowchart TD
 - 统一客户端限定同源 `/api` 路径、JSON 与 Bearer，受保护请求遇 401 清会话；登录 401 显示统一账号或密码错误。403/404/422/429/5xx、网络故障、请求超时和坏响应提供中文提示及可获得的 request_id，不回显原始异常或令牌。会话代次和 AbortController 防止旧请求恢复已退出的身份。
 - 模型服务密钥和 JWT 签名密钥只在后端环境；前端不保存模型密钥，不从 JWT 解码信任身份。列表由后端过滤，不靠前端隐藏按钮代替授权。刷新列表清除旧选择；访问已失效知识库时清除选择并显示错误。
 - 先验证错误登录、真实契约/授权列表、空列表、401/计时过期、网络/服务故障重试、撤权后选择和迟到响应；实际浏览器联调使用临时 PostgreSQL、真实 FastAPI/Argon2/JWT，不调用模型。
+
+## 第 26B 步契约：文档管理页面
+
+- 当前库文档列表每页 10 条，管理员上传/重建/确认删除；普通成员仅查看列表和已发布切块预览。沿用现有上传 202、10 MiB、UTF-8 MD/TXT 与文本型 PDF 契约，不改变任务领取/模型/索引逻辑。
+- 文档列表/详情新增 `latest_job`，管理员可见最新任务的现有 JobResponse，成员为 null；任务详情继续管理员授权。文档 ready 与重建任务失败独立展示，失败不意味着旧索引失效。
+- 新增 `GET /knowledge-bases/{kb_id}/documents/{document_id}/preview`：成员授权，限定未删除文档当前 active 且 ready 构建。响应含 document_id、build_id（无发布构建为 null）、items、total_chunks、request_id。最多 3 块，每块 text 最多 600 字符，含 chunk_id、ordinal、page_number、heading_path、start_line/end_line、truncated；标题最多 6 层且每层 160 字符，截断由 locator_truncated 标明。无可用构建返回空 items；不会在 GET 中解析或调用模型，不暴露失败/暂存/旧构建。非成员、错误库及删除对象统一 404。
+- 管理员页面对可见 queued/running 任务顺序轮询，每次结束后等待 2 秒，最多 60 次且每轮最多 120 秒；终态、错误、截止、离开页面/切库/退出时停止并中止在途请求。手动重新检查可开始新一轮；停止浏览器请求不等于取消后台任务。没有 worker 时显示排队，超时后提示手动检查，不伪造完成。
+- 浏览器用 FormData 上传，不手设 multipart Content-Type；沿用内存 Bearer、统一超时与错误处理。响应正文以 React 文本展示，不执行 Markdown/HTML。请求清理与迟到响应检查防止前一知识库覆盖当前页面。
+- 先验收：预览的管理员/成员/外库/撤权/删除授权和大小边界；只读成员不能写；上传格式/大小提示与 multipart；任务成功/失败/截止/网络错误/切库/离开停止轮询；删除取消和确认；重建期间旧预览有效，成功只读新构建。浏览器模拟 HTTP 与真实 PostgreSQL/FastAPI/fake 入库分别记录，不能作为真实模型效果。

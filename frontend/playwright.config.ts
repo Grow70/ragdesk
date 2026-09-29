@@ -9,7 +9,11 @@ process.env.no_proxy = process.env.NO_PROXY;
 const real = process.env.E2E_REAL === "1";
 export default defineConfig({
   testDir: "./tests",
-  testMatch: real ? "real.spec.ts" : "auth.spec.ts",
+  testMatch: real
+    ? process.env.E2E_DOCUMENTS === "1"
+      ? "documents-real.spec.ts"
+      : "real.spec.ts"
+    : ["auth.spec.ts", "documents.spec.ts"],
   fullyParallel: false,
   workers: 1,
   retries: 0,

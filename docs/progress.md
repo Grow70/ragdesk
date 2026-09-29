@@ -266,3 +266,19 @@
 - 产物与清理：日志、真实联调截图保存在忽略目录 artifacts/validation/step26a/；前端 node_modules、dist、test-results 和 playwright-report 已忽略。fixture 已清理随机库与 API/Vite 进程；停止本步专用 ragdesk-step26a-pg 容器并由 --rm 自动移除，不关闭用户的 Docker Desktop、不操作已有用户数据。未 commit、push、部署或调用收费 API。
 - 遗留边界：仅 Chromium 自动验收，未运行其他浏览器或 Windows 原生自动化；PowerShell 命令已编写，实际运行环境为 WSL。内存令牌会随刷新丢失，不抵御任意同源 XSS；退出无服务端撤销，已签发 JWT 到期前仍可能有效。静态部署仍需同源 /api 反向代理，Vite 代理仅作本地开发/预览。当前没有前端注册、刷新令牌或跨标签页登录共享。
 - 下一步入口：等待新的编号任务；本步验收目标已通过。启动后端，再在 frontend 执行 npm ci / npm run dev，登录自己的演示账号；空列表按 docs/frontend_auth.md 使用既有授权接口准备库。不会自动进入文档管理或聊天步骤。
+
+## 第 26B 步：文档管理页面（2026-09-29）
+
+- 已完成：在 6 个主要实现文件内新增前端 Documents.tsx，修改 App.tsx、api.ts、styles.css、后端 api/documents.py 和 services/documents.py。提供当前库分页列表、管理员上传/任务状态/失败摘要/重建/确认删除、成员只读与切块预览；空状态、加载、错误重试、知识库切换和窄屏布局齐备。没有增加聊天、权限配置中心、模型调用或检索策略。
+- 契约先行：架构新增 26B 约定后定义权限/生命周期测试。新增成员授权 GET 文档 preview，只在 SQL 的同一查询快照读取该库未删除文档当前 active ready 构建，最多 3 块 × 600 字符，含页码/标题/行号与截断标记；没有构建时返回空预览，不在 GET 解析文件。标题最多 6 层 × 160 字符。文档列表/详情新增 latest_job，仅管理员可见；任务详情仍管理员授权，成员不能通过摘要绕过。
+- 界面取舍：文档 ready 与最近重建失败分别展示，保留旧有效构建的含义明确；刷新/重新登录后从后端发现任务。上传用 FormData，浏览器生成 multipart boundary；前后端都检查类型/大小，后端继续负责实际格式/权限。预览以纯文本渲染，不执行资料中的 HTML/脚本。沿用内存令牌，不存模型密钥，无新增依赖，两个锁文件保持不变。
+- 轮询：每个可见活动任务上次请求结束后等 2 秒，再顺序请求，最多 60 次且单轮最多 120 秒；终态、错误、到期、切库、离开、退出/pagehide 均停止并 abort 在途请求。手动检查可开启新一轮；取消浏览器查询不等于取消后台任务。每页 10 份，未增加跨页缓存/推送或额外监控；任务摘要沿用小规模逐文档 SQL，未宣称大规模性能。
+- 最终浏览器回归：**24 passed（18.6 秒）**，真实 Chromium + 模拟 HTTP，包括原认证 12 项与文档 12 项。覆盖成员只读、带物理页码的有界纯文本预览、空/超限/类型上传检查、multipart、任务成功/失败/错误/截止与手动重试、切库/返回/退出停止轮询、在途请求取消和迟到结果隔离、删除取消/确认、重建保留旧索引提示、分页、列表错误恢复、390px 布局。
+- 真实后端验收：独立 ragdesk-step26b-pg 容器、随机临时数据库，test_document_preview / test_documents / test_document_lifecycle / test_ingestion_jobs / test_frontend_documents 合计 **26 passed（33.41 秒）**。其中真实浏览器全流程 **1 passed（8.7 秒）**，已计入外层夹具，不重复计算。真实 FastAPI/Argon2/JWT + PostgreSQL + 单 worker + Vite/Chromium，实际上传中文 Markdown→202→worker 发布→预览数字/型号→重建切换 build→成员预览及直接写接口 403→外库 404→管理员删除→旧预览 404。Embedding 明确 fake，无真实模型/收费 API 请求。
+- 预览回归另覆盖未完成空预览、失败重建仍用旧 build、成功后新 build/新 chunk、成员看不到管理任务摘要、撤权/删除/错误库不可见、块数量/正文长度/标题截断边界。沿用原删除竞争与任务发布回归；未执行后端全项目测试，不报告全量通过。
+- 故障定位：初次后端 24 passed、1 failed，新测试错误期待成员删除 204，核对实际契约为 200 后仅改断言。浏览器首轮 20 passed、3 failed，定位选择框可访问名称和异步断言时序；复跑显示模拟任务默认 queued 与“处理中”断言不一致，修正夹具为 running 后 23 passed，再补在途取消验收后最终 24 passed。没有随机修改后端业务逻辑。一次脚本因无 python 别名未执行实现部分，改用已有 python3；ruff 长行先格式化解决。最终 Prettier 提示真实测试文件格式，再格式化后复查通过。
+- 中断与恢复：上轮末尾的日志读取/测试修正命令被自动审批额度限制拒绝，未执行。用户继续后重新核对磁盘结果，确认此前真实联调已完成，补执行修正和最终回归；没有把中断命令报告为成功。
+- 工程验证：最终 TypeScript + Vite 生产构建通过；Prettier 全前端检查通过；本步 Python 4 文件 ruff check/format 通过；uv lock --check（77 包）通过；git diff --check 通过。已查看真实页面截图并修正上传标签换行；截图为微调样式前的真实联调产物，功能行为相同。React useEffect、AbortController、FormData 官方文档已查询，参考链接与 PowerShell 启动/验收命令见 docs/frontend_documents.md；README/architecture 已同步。
+- 产物与边界：安全日志和模拟资料截图位于忽略目录 artifacts/validation/step26b/。夹具清理随机数据库、API/worker/Vite 进程；不提交上传资料或数据库，不 push/部署。自动测试仅 Chromium，PowerShell 命令在文档提供，未在 Windows 原生执行。纯扫描件/复杂 PDF 仍按已有解析契约报错，无 OCR；仅展示已发布切块，不宣称完整解析审阅或真实 RAG 效果。
+- 下一步入口：本步目标已验收，等待新的编号任务。按 docs/frontend_documents.md 启动 API、唯一 worker 与前端即可演示；没有自动进入聊天或其他功能。
+- 环境清理核对：续作收尾执行 docker ps 时 Docker Desktop Linux daemon 的命名管道不存在，不能确认此前 --rm 专用容器是否已移除；未为清理而擅自重启用户 Docker Desktop。随机数据库和测试应用进程已由成功退出的夹具清理。若之后发现容器仍在，可执行 `docker stop ragdesk-step26b-pg`；只操作本步专用容器。此状态不影响已记录的实际测试结果。

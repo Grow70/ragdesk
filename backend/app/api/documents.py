@@ -59,10 +59,31 @@ class JobResponse(BaseModel):
     request_id: str
 
 
+class PreviewChunk(BaseModel):
+    chunk_id: UUID
+    ordinal: int
+    text: str
+    truncated: bool
+    page_number: int | None
+    heading_path: list[str]
+    locator_truncated: bool
+    start_line: int | None
+    end_line: int | None
+
+
+class PreviewResponse(BaseModel):
+    document_id: UUID
+    build_id: UUID | None
+    items: list[PreviewChunk]
+    total_chunks: int
+    request_id: str
+
+
 class DocumentResponse(BaseModel):
     document_id: UUID
     file_name: str
     file_sha256: str
+    latest_job: JobResponse | None = None
     status: Literal["uploaded", "queued", "processing", "ready", "failed"]
     created_at: datetime
     request_id: str
@@ -77,9 +98,11 @@ class DocumentListResponse(BaseModel):
 
 
 def _document_response(
-    session: Session, document: Document, request_id: str
+    session: Session, document: Document, request_id: str, user_id: UUID
 ) -> DocumentResponse:
+    job = service.latest_visible_job(session, user_id, document)
     return DocumentResponse(
+        latest_job=_job_response(job, request_id) if job else None,
         document_id=document.id,
         file_name=document.file_name,
         file_sha256=document.file_sha256,
@@ -174,6 +197,10 @@ def get_job(
     session: Annotated[Session, Depends(get_session)],
 ):
     job = jobs.visible_job(session, user.id, kb_id, document_id, job_id)
+    return _job_response(job, request.state.request_id)
+
+
+def _job_response(job, request_id):
     return JobResponse(
         job_id=job.id,
         document_id=job.document_id,
@@ -188,7 +215,7 @@ def get_job(
         created_at=job.created_at,
         started_at=job.started_at,
         finished_at=job.finished_at,
-        request_id=request.state.request_id,
+        request_id=request_id,
     )
 
 
@@ -204,7 +231,7 @@ def list_documents(
     items, total = service.list_documents(session, user.id, kb_id, limit, offset)
     request_id = request.state.request_id
     return DocumentListResponse(
-        items=[_document_response(session, doc, request_id) for doc in items],
+        items=[_document_response(session, doc, request_id, user.id) for doc in items],
         total=total,
         limit=limit,
         offset=offset,
@@ -221,7 +248,7 @@ def get_document(
     session: Annotated[Session, Depends(get_session)],
 ) -> DocumentResponse:
     document = service.get_document(session, user.id, kb_id, document_id)
-    return _document_response(session, document, request.state.request_id)
+    return _document_response(session, document, request.state.request_id, user.id)
 
 
 @router.get("/{document_id}/raw", response_class=FileResponse)
@@ -263,5 +290,19 @@ def delete_document(
         document_id=document_id,
         status="deleted",
         cleanup_status=cleanup,
+        request_id=request.state.request_id,
+    )
+
+
+@router.get("/{document_id}/preview", response_model=PreviewResponse)
+def get_preview(
+    kb_id: UUID,
+    document_id: UUID,
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+) -> PreviewResponse:
+    return PreviewResponse(
+        **service.preview(session, user.id, kb_id, document_id),
         request_id=request.state.request_id,
     )

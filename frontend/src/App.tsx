@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { FormEvent } from "react";
 import { api, ApiError, cancelled } from "./api";
 import type { CurrentUser, KnowledgeBase } from "./api";
+import Documents from "./Documents";
 
 function Brand() {
   return (
@@ -140,6 +141,7 @@ function Login({ notice }: { notice: string }) {
 }
 
 function Workspace() {
+  const [showDocuments, setShowDocuments] = useState(false);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [selected, setSelected] = useState<KnowledgeBase | null>(null);
@@ -252,100 +254,123 @@ function Workspace() {
           </span>
         </header>
         <div className="workspace-content">
-          <div className="page-title">
-            <div>
-              <p className="eyebrow">YOUR LIBRARIES</p>
-              <h1>
-                我的知识库
-                <span className="count">{loading ? "—" : bases.length}</span>
-              </h1>
-              <p className="muted">选择一个知识库，确定本次工作的资料范围。</p>
-            </div>
-            <button
-              className="secondary"
-              disabled={loading}
-              onClick={() => setReload((value) => value + 1)}
-            >
-              {loading ? "加载中…" : "刷新列表"}{" "}
-              <span aria-hidden="true">↻</span>
-            </button>
-          </div>
-          <ErrorNotice error={error} />
-          {loading ? (
-            <div className="loading-panel" role="status">
-              <span className="spinner" />
-              正在加载你的知识库…
-            </div>
+          {showDocuments && selected ? (
+            <Documents
+              key={selected.id + selected.role}
+              kb={selected}
+              bases={bases}
+              onSelect={(id) => void choose(id)}
+              onBack={() => setShowDocuments(false)}
+            />
           ) : (
             <>
-              {!bases.length && !error && (
-                <div className="empty-state">
-                  <span className="empty-icon" aria-hidden="true">
-                    ▤
-                  </span>
-                  <h2>还没有可访问的知识库</h2>
-                  <p>请联系管理员将你加入知识库，然后刷新列表。</p>
+              <div className="page-title">
+                <div>
+                  <p className="eyebrow">YOUR LIBRARIES</p>
+                  <h1>
+                    我的知识库
+                    <span className="count">
+                      {loading ? "—" : bases.length}
+                    </span>
+                  </h1>
+                  <p className="muted">
+                    选择一个知识库，确定本次工作的资料范围。
+                  </p>
                 </div>
-              )}
-              <div className="library-grid" aria-label="可访问的知识库">
-                {bases.map((kb, index) => (
-                  <button
-                    key={kb.id}
-                    className={`library-card ${selected?.id === kb.id ? "is-selected" : ""}`}
-                    aria-pressed={selected?.id === kb.id}
-                    onClick={() => void choose(kb.id)}
-                    disabled={choosing === kb.id}
-                  >
-                    <div className="card-top">
-                      <span className="library-icon" aria-hidden="true">
+                <button
+                  className="secondary"
+                  disabled={loading}
+                  onClick={() => setReload((value) => value + 1)}
+                >
+                  {loading ? "加载中…" : "刷新列表"}{" "}
+                  <span aria-hidden="true">↻</span>
+                </button>
+              </div>
+              <ErrorNotice error={error} />
+              {loading ? (
+                <div className="loading-panel" role="status">
+                  <span className="spinner" />
+                  正在加载你的知识库…
+                </div>
+              ) : (
+                <>
+                  {!bases.length && !error && (
+                    <div className="empty-state">
+                      <span className="empty-icon" aria-hidden="true">
                         ▤
                       </span>
-                      <span className={`role-badge ${kb.role}`}>
-                        {kb.role === "admin" ? "管理员" : "成员"}
-                      </span>
+                      <h2>还没有可访问的知识库</h2>
+                      <p>请联系管理员将你加入知识库，然后刷新列表。</p>
                     </div>
-                    <span className="card-number">
-                      LIBRARY / {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <strong className="library-name">{kb.name}</strong>
-                    <span className="card-bottom">
-                      <span>
-                        {choosing === kb.id
-                          ? "正在确认访问权限…"
-                          : selected?.id === kb.id
-                            ? "已选择"
-                            : "选择知识库"}
-                      </span>
-                      <span aria-hidden="true">
-                        {selected?.id === kb.id ? "✓" : "↗"}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-              {selected && (
-                <section
-                  className="selection"
-                  aria-labelledby="selection-title"
-                >
-                  <div className="selection-mark" aria-hidden="true">
-                    ✓
+                  )}
+                  <div className="library-grid" aria-label="可访问的知识库">
+                    {bases.map((kb, index) => (
+                      <button
+                        key={kb.id}
+                        className={`library-card ${selected?.id === kb.id ? "is-selected" : ""}`}
+                        aria-pressed={selected?.id === kb.id}
+                        onClick={() => void choose(kb.id)}
+                        disabled={choosing === kb.id}
+                      >
+                        <div className="card-top">
+                          <span className="library-icon" aria-hidden="true">
+                            ▤
+                          </span>
+                          <span className={`role-badge ${kb.role}`}>
+                            {kb.role === "admin" ? "管理员" : "成员"}
+                          </span>
+                        </div>
+                        <span className="card-number">
+                          LIBRARY / {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <strong className="library-name">{kb.name}</strong>
+                        <span className="card-bottom">
+                          <span>
+                            {choosing === kb.id
+                              ? "正在确认访问权限…"
+                              : selected?.id === kb.id
+                                ? "已选择"
+                                : "选择知识库"}
+                          </span>
+                          <span aria-hidden="true">
+                            {selected?.id === kb.id ? "✓" : "↗"}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
                   </div>
-                  <div>
-                    <p className="eyebrow">当前知识库</p>
-                    <h2 id="selection-title">{selected.name}</h2>
-                    <p>
-                      你的角色：{selected.role === "admin" ? "管理员" : "成员"}
-                      <span className="dot">·</span>创建于{" "}
-                      {new Date(selected.created_at).toLocaleDateString(
-                        "zh-CN",
-                      )}
-                    </p>
-                  </div>
-                  <span className="selected-label" role="status">
-                    已选择
-                  </span>
-                </section>
+                  {selected && (
+                    <section
+                      className="selection"
+                      aria-labelledby="selection-title"
+                    >
+                      <div className="selection-mark" aria-hidden="true">
+                        ✓
+                      </div>
+                      <div>
+                        <p className="eyebrow">当前知识库</p>
+                        <h2 id="selection-title">{selected.name}</h2>
+                        <p>
+                          你的角色：
+                          {selected.role === "admin" ? "管理员" : "成员"}
+                          <span className="dot">·</span>创建于{" "}
+                          {new Date(selected.created_at).toLocaleDateString(
+                            "zh-CN",
+                          )}
+                        </p>
+                      </div>
+                      <button
+                        className="primary"
+                        onClick={() => setShowDocuments(true)}
+                      >
+                        打开文档
+                      </button>
+                      <span className="selected-label" role="status">
+                        已选择
+                      </span>
+                    </section>
+                  )}
+                </>
               )}
             </>
           )}

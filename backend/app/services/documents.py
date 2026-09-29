@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Document, DocumentBuild, IngestionJob
+from app.models import Chunk, Document, DocumentBuild, IngestionJob
 from app.repositories import documents as repo
 from app.services.ingestion_jobs import ACTIVE, enqueue, lock_document_operation
 from app.services.knowledge_bases import NotFound, require_kb_admin, require_kb_member
@@ -290,3 +290,68 @@ def delete_document(session, user_id, kb_id, document_id, storage_dir):
     session.commit()  # All visibility and task cancellation changes become atomic.
     # Filesystem failure cannot roll back deletion; repeat DELETE retries cleanup.
     return cleanup_original(storage_dir, storage_key)
+
+
+def latest_visible_job(session: Session, user_id: UUID, document: Document):
+    """Management details remain admin-only, including on list/detail reads."""
+    member = require_kb_member(session, user_id, document.kb_id)
+    if member.role != "admin":
+        return None
+    return session.scalar(
+        select(IngestionJob)
+        .where(IngestionJob.document_id == document.id)
+        .order_by(IngestionJob.created_at.desc(), IngestionJob.id.desc())
+        .limit(1)
+    )
+
+
+def preview(session: Session, user_id: UUID, kb_id: UUID, document_id: UUID):
+    get_document(session, user_id, kb_id, document_id)
+    # One statement snapshot selects only current published, undeleted chunks.
+    rows = session.execute(
+        select(
+            Chunk.id,
+            Chunk.build_id,
+            Chunk.ordinal,
+            func.substr(Chunk.body, 1, 600).label("text"),
+            func.length(Chunk.body).label("length"),
+            Chunk.page_number,
+            Chunk.heading_path,
+            Chunk.start_line,
+            Chunk.end_line,
+            func.count().over().label("total"),
+        )
+        .join(DocumentBuild, Chunk.build_id == DocumentBuild.id)
+        .join(Document, Document.active_build_id == DocumentBuild.id)
+        .where(
+            Document.id == document_id,
+            Document.kb_id == kb_id,
+            Document.deleted_at.is_(None),
+            DocumentBuild.status == "ready",
+        )
+        .order_by(Chunk.ordinal)
+        .limit(3)
+    ).all()
+    items = []
+    for row in rows:
+        headings = row.heading_path or []
+        items.append(
+            {
+                "chunk_id": row.id,
+                "ordinal": row.ordinal,
+                "text": row.text,
+                "truncated": row.length > 600,
+                "page_number": row.page_number,
+                "heading_path": [h[:160] for h in headings[:6]],
+                "locator_truncated": len(headings) > 6
+                or any(len(h) > 160 for h in headings),
+                "start_line": row.start_line,
+                "end_line": row.end_line,
+            }
+        )
+    return {
+        "document_id": document_id,
+        "build_id": rows[0].build_id if rows else None,
+        "items": items,
+        "total_chunks": rows[0].total if rows else 0,
+    }
