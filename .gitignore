@@ -11,3 +11,8 @@
 **/*.log
 # Local evaluation raw outputs and snapshots (may contain private source text).
 /artifacts/
+# Frontend dependencies, builds and private browser test output.
+/frontend/node_modules/
+/frontend/dist/
+/frontend/test-results/
+/frontend/playwright-report/

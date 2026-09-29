@@ -252,3 +252,17 @@
 - 已保存产物：artifacts/validation/step25/ 下 targeted.txt、regression.txt、final-targeted.txt；artifacts/eval/step25-preflight-final/ 下 manifest、results.jsonl、report、review.template.json 和题集快照。早期预检保留为 step25-preflight，后者源代码哈希已过时，最终记录以 final 目录为准。数据与代码哈希见评测说明。产物在 Git 忽略目录，不提交资料/密钥/数据库。
 - 结论与限制：保留固定 RAG 为默认；简单事实和确实无资料的问题优先固定流程，查询不明确/需改写/跨文档补读仅为 Agent 候选场景，收益待真实同题复核。当前没有收益证据，不宣称“Agent 改善”或“实验已证明无改善”。同义改写不冒充模糊表述，模糊题标签仍缺失。Agent 预览长度、最新证据替换、可自主 top_k 与整轮截止不同于固定流程，报告显式披露，不能称为仅循环次数不同的消融实验。
 - 遗留与下一步入口：本编号任务的真实效果部分等待人工复核和真实评测环境；按 docs/agent_evaluation.md 小规模烟测后执行同一 dev，再独立标注复核并保留结果。没有开始下一编号任务，没有 push、部署或收费调用；不因评测缺口扩大业务修改范围。
+
+## 第 26A 步：React 前端认证与知识库选择（2026-09-29）
+
+- 已完成：新增 frontend 的 React + TypeScript + Vite 应用；主要实现为 api.ts、App.tsx、main.tsx、styles.css、index.html、vite.config.ts 六个文件，另有依赖/类型/测试配置、锁文件及测试。登录、当前用户、授权库列表/单库选择、加载/空状态、失败重试、过期退出和响应式布局已实现。本步无文档管理/聊天，不新增后端业务逻辑、接口或迁移。
+- 契约与依赖：先核对需求/架构/进度及真实 FastAPI 路由，再明确权限、401、请求竞态和错误验收。浏览器 /api 经 Vite 代理到现有根路径 /auth/session、/auth/me、/knowledge-bases 与详情；早期规划 /api/v1 未启用。已查 React/Vite/Playwright 官方文档，锁定 React 19.3.0、Vite 8.3.1、React 插件 6.1.1、TypeScript 6.0.2、Playwright 1.63.0，生成 package-lock.json。npm ci、生产构建/类型检查、Prettier 检查均实际通过，无后端依赖变更。
+- 认证取舍：令牌只存客户端实例内存；不写浏览器存储/Cookie/URL，不从 JWT 解码信任用户，刷新需重新登录。客户端到期定时器、焦点恢复和请求前检查只控制体验；后端验签/exp/成员检查仍为权限边界。受保护 401 清理所有会话状态；选择时再查详情授权；退出 AbortController + 会话代次阻止迟到响应恢复旧用户，选择序号阻止乱序覆盖。15 秒请求超时，错误中文提示及可获得 request_id，不回显原始异常和密钥。
+- 最终浏览器契约回归：**12 passed（9.6 秒）**，真实 Chromium + 模拟 HTTP。覆盖正确/错误登录、JSON/Bearer 契约、无持久存储/刷新登出、空列表、列表失败重试和加载、401清会话、可控时钟过期、撤权后详情拒绝、退出后迟到响应、网络/非法响应、超时、选择乱序、390px 窄屏无横向溢出。
+- 真实联调：专用 PostgreSQL + 随机临时数据库 + 真实 FastAPI/Argon2/JWT + Vite/Chromium，**3 项浏览器用例 passed（4.3 秒）**；外层 pytest 夹具 **1 passed（7.57 秒）**，不重复计数。真实登录看到 A 与个人空间且不见 B，使用有效令牌直接请求 B 返回 404；选择、刷新、退出有效。另将一次请求换成正确签名但已过期 JWT，真实后端 401 后前端清空用户；实际登录 TTL 配合浏览器可控时钟验证主动过期。没有替换真实后端响应，没有长时间 sleep 或模型调用。
+- 关联后端回归：test_auth.py 与 test_knowledge_bases.py **3 passed（4.14 秒）**。新增 Python 测试夹具 ruff check/format、git diff --check 通过；本步没有执行全项目后端测试，不宣称全量通过。实际检查了登录/授权库页面截图；截图只含本步模拟账号，未记录令牌、密码或请求头，浏览器 trace/视频关闭。
+- 故障定位记录：默认沙箱因 WSL 挂载错误不能启动，使用经审批的工作区命令；Docker Desktop 起初未运行，启动后专用库可达。Playwright Chromium 本体下载成功，FFmpeg 下载 TLS 连接重置失败，不录制视频故无需该组件。初始 Vite 就绪探测经环境 HTTP 代理返回 502，按证据为本地测试设置 NO_PROXY；随后发现关闭的 WSL 转发端口探测处于 SYN-SENT，首次真实联调虽通过但耗时 142.60 秒。改为官方支持的 Vite stdout 就绪后，重跑真实联调 7.57 秒通过；不改业务逻辑。一次配置写入因相对路径错误未执行，修正工作目录后完成。
+- 中断与恢复：上一轮最后的锁文件重装/回归命令被自动审批用量限制拒绝，未执行。用户继续后已补做 npm ci、构建/格式、12 项浏览器及 3 项后端回归，并补齐 README、docs/frontend_auth.md 与本节。没有将未执行报告为通过。
+- 产物与清理：日志、真实联调截图保存在忽略目录 artifacts/validation/step26a/；前端 node_modules、dist、test-results 和 playwright-report 已忽略。fixture 已清理随机库与 API/Vite 进程；停止本步专用 ragdesk-step26a-pg 容器并由 --rm 自动移除，不关闭用户的 Docker Desktop、不操作已有用户数据。未 commit、push、部署或调用收费 API。
+- 遗留边界：仅 Chromium 自动验收，未运行其他浏览器或 Windows 原生自动化；PowerShell 命令已编写，实际运行环境为 WSL。内存令牌会随刷新丢失，不抵御任意同源 XSS；退出无服务端撤销，已签发 JWT 到期前仍可能有效。静态部署仍需同源 /api 反向代理，Vite 代理仅作本地开发/预览。当前没有前端注册、刷新令牌或跨标签页登录共享。
+- 下一步入口：等待新的编号任务；本步验收目标已通过。启动后端，再在 frontend 执行 npm ci / npm run dev，登录自己的演示账号；空列表按 docs/frontend_auth.md 使用既有授权接口准备库。不会自动进入文档管理或聊天步骤。
