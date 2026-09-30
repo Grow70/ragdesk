@@ -1,0 +1,19 @@
+{
+  "status": "not_run",
+  "executed_sample_n": 0,
+  "observed_failure_n": 0,
+  "cases": [],
+  "note": "No real executions. No synthetic cases inserted; zero observed cases is not a zero failure rate.",
+  "classification_vocabulary": [
+    "retrieval_miss",
+    "partial_evidence",
+    "unsupported_fact",
+    "citation_mismatch",
+    "wrong_refusal",
+    "failed_refusal",
+    "conflicting_evidence",
+    "budget_exhaustion",
+    "provider_or_timeout",
+    "authorization_or_index_changed"
+  ]
+}

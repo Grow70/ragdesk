@@ -329,3 +329,16 @@
 - 产物：artifacts/validation/step29/ 保存 backend.txt/backend-final.txt 与 XML、e2e.txt/XML、keyflow-api/worker/browser 日志、browser-contract 初始及 final 日志、auth-reproduction/auth-fix/final、ci-guards 与空密钥环境验证；全部在忽略目录。专用数据库容器为 ragdesk-step29-pg，测试只操作随机临时库；清理结果见下条。
 - 下一步入口：本步本地 CI 命令与关键回归已建立；由项目负责人提交/推送后查看两个 GitHub job 的实际结果。没有自动 commit/push、配置仓库分支保护、部署或进入下一编号任务；真实模型验证必须独立显式运行。
 - 最后定向验证与清理：空模型密钥在非空拒绝检查之后标准化，按 Actions 的相同环境运行模型配置/启动/重排配置/认证时钟检查 **41 passed（3.23 秒）**，额外非空密钥探测仍退出 4。最终 Ruff check/format、actionlint 和 git diff --check 通过。已停止 --rm 专用容器 ragdesk-step29-pg，随后 docker ps -a 过滤结果为空；未操作其他容器或已有数据库。远端 CI 仍为未运行。
+
+## 第 30 步：最终实验与证据归档（2026-09-30）
+
+- 已完成本次报告与归档：reports/final-evaluation.md、reports/evidence/step30/ 的输入/配置/版本/原始预检与逐题状态、人工复核模板、失败清单，以及 reports/verify_final_evidence.py。更新架构与本节；未修改业务实现、提示词、检索/Agent 策略、原题集/冻结摘要或依赖。真实四方案实验及人工评分**尚未执行**，不将报告归档完成等同于效果实验完成。
+- 前提核对：用户声明 dev 已结束并冻结；仓库实际仍为 dev 15/test 15 全部 draft，test reviewed=0。当前进程 DATABASE_URL/JWT_SECRET/OPENAI_API_KEY/COHERE_API_KEY/EVAL_BEARER_TOKEN 均未配置，未取得评测库映射、真实索引快照与最终 dev 配置记录。已请求外部已复核冻结材料和映射位置，本轮未收到；未代替用户复核或将等待当作批准。
+- 输入完整性已验证：check_eval_set.py 退出 0，30 条题目的字段、分组、资料哈希、逐字引用与原冻结清单一致；8 份纯虚构模拟企业资料、2 库。test 为事实6/改写3/跨文档3/不足3，共15，其中12可回答且有 gold；实际所有指标分母仍为0。test canonical SHA-256=74576b49f4f043418eedd9f634d6ee2ab40aa3d7211a8e91d87d01e88e8bd098，原 questions 字节 SHA-256=455ea770c675676303e1f61fdc08e1db01e556ba70bd4f5d2f4912aaca2f25db。
+- 实际预检：A app.evaluate、B app.evaluate_rrf、C app.evaluate_rerank 均以 --split test、无 --run-real 执行，各退出 2，各保存15条 not_run；阻塞为未复核与未申请真实运行。A/B/C 源码树/题集摘要一致。D 只执行 --help 并审阅源码，确认硬编码 dev、不支持 --split test，因此 D test 未执行；没有重标 test 为 dev 绕过限制。
+- 能力边界：A 已有完整固定问答评测；B/C 入口只保存检索对照，不调用 Chat；rerank 适配器存在但真实 Cohere 尚未验证；D 工具检索为向量且最终选择记录缺失。本步只做实验与证据归档，没有为了生成漂亮结果新增四路问答评测器或偷偷改策略；这些缺口在报告明确列出，不能把 B/C 检索耗时当完整问答性能。
+- 保存内容：基线 commit 21f640f81060773d391dbc6bd5506b15de06df74，预检时工作区干净；源码文件/树、依赖、输入、语料、词典、系统提示词摘要与默认参数来源保留。配置快照明确“观察到的代码默认值”，实际模型维度/有效构建/库映射/价格为空。原始 A/B/C 预检原样保留；统一60条题目×方案记录的答案、引用、检索、调用、耗时、usage、金额均 null。源码基线包 artifacts/eval/step30/source-baseline.tar 在忽略目录，摘要记录于 code-version；报告附归档校验和实际可用复现命令。
+- 人工复核与失败：人工评分0、真实执行每方案0、可比配对0。60个复核槽位全部 pending_execution；失败 cases=[]，真实失败0是未运行所致，不是零失败率。没有编造五例，没有挪用历史 fake/CI 失败。报告提供失败分类、人工逐事实/逐引用核查规范、百分比与百分点公式及明确标为说明性的示例；事实正确性和引用支持需独立人工判断。
+- 归档验证：verify_final_evidence.py 对32个证据文件、15条冻结 test、60条 not_run、当前源码/资料及源码包校验通过；在临时副本分别修改字节、删除文件、把未知耗时填0、伪造已执行数量，四项均被拒绝，结果已存 archive-validation.json。Ruff check/format、git diff --check 通过。只使用标准库校验，无新依赖；已核对 Python hashlib 官方文档。未运行模型、数据库实验或全项目回归，不把静态/完整性通过报告成效果验证。
+- test 使用声明：本步读取 test 做原文/位置与完整性预检，没有基于模型输出修改实现；不能从摘要独立证明历史上 test 从未曝光。若今后依据 test 修改代码、提示词、参数或标注，须记录污染与版本并另建独立 test，不能保留“未见测试集”标签。既有 dev/fake 产物只以路径/哈希索引保存，未纳入最终效果，未覆盖向量基线。
+- 遗留与下一步入口：需要交接已人工复核冻结题集、最终配置与授权真实评测索引/映射、明确预算，并解决 B/C 全问答与 D test 评测入口限制后，才能在新目录实际运行并人工评分。本步报告明确全部方案“未执行”；没有自动进入下一编号任务、commit/push、部署、购买服务或收费 API 调用。

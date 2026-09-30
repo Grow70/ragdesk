@@ -1,0 +1,4 @@
+OK: 30 draft records; 12 direct, 6 paraphrase, 6 cross, 6 insufficient
+OK: dev 15 / test 15; IDs, groups, source hashes and quotes verified
+OK: frozen test SHA-256 and review checklist are in sync
+NOTE: missing evidence and factual interpretation need human review

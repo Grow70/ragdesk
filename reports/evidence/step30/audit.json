@@ -1,0 +1,42 @@
+{
+  "created_at": "2026-09-30T15:38:01.979110+00:00",
+  "experiment_status": "not_run",
+  "dataset_kind": "fictional_enterprise_demo_material",
+  "dataset_n": 30,
+  "dev_n": 15,
+  "test_n": 15,
+  "test_reviewed_n": 0,
+  "test_category_counts": {
+    "direct_fact": 6,
+    "paraphrase": 3,
+    "cross_document": 3,
+    "insufficient_evidence": 3
+  },
+  "test_kb_counts": {
+    "A": 12,
+    "B": 3
+  },
+  "test_answerable_n": 12,
+  "test_gold_nonempty_n": 12,
+  "executed_n_by_arm": {
+    "A": 0,
+    "B": 0,
+    "C": 0,
+    "D": 0
+  },
+  "paired_n": 0,
+  "human_answer_review_n": 0,
+  "test_canonical_sha256": "74576b49f4f043418eedd9f634d6ee2ab40aa3d7211a8e91d87d01e88e8bd098",
+  "questions_file_sha256": "455ea770c675676303e1f61fdc08e1db01e556ba70bd4f5d2f4912aaca2f25db",
+  "corpus_documents_n": 8,
+  "code_commit": "21f640f81060773d391dbc6bd5506b15de06df74",
+  "changes_based_on_test_outputs_this_step": false,
+  "prior_test_exposure_independently_verified": false,
+  "environment_values_archived": false,
+  "preflight_exits": {
+    "A": 2,
+    "B": 2,
+    "C": 2
+  },
+  "D_execution": "not_run_no_test_cli"
+}

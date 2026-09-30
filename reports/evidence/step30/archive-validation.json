@@ -1,0 +1,22 @@
+[
+  {
+    "case": "byte_change",
+    "result": "rejected",
+    "reason": "Hash mismatch: audit.json"
+  },
+  {
+    "case": "missing_file",
+    "result": "rejected",
+    "reason": "Archive file set differs from checksum inventory"
+  },
+  {
+    "case": "invented_metric",
+    "result": "rejected",
+    "reason": "Invented measurement in not_run row"
+  },
+  {
+    "case": "invented_completed_count",
+    "result": "rejected",
+    "reason": "Audit invents completed experiments"
+  }
+]

@@ -1,0 +1,58 @@
+[
+  {
+    "path": "artifacts/eval/step16-preflight/manifest.json",
+    "sha256": "8844de9ad9bb9ebf21ab83de818ef9be41b24ddeca0eab79ab46dce032ffd57f",
+    "split": "dev",
+    "status": "not_run",
+    "mode": "not_run",
+    "included_in_final_metrics": false
+  },
+  {
+    "path": "artifacts/eval/step17-bm25-dev-draft/manifest.json",
+    "sha256": "1494f53c3ebbcfa9a2f618110b321f314777824d05418502e8fbbb77ae4da3bc",
+    "split": "dev",
+    "status": "completed",
+    "mode": null,
+    "included_in_final_metrics": false
+  },
+  {
+    "path": "artifacts/eval/step18-rrf-dev-fake/manifest.json",
+    "sha256": "7d3e58391f31c159ae78095cb46b7e6a945180d1914b01b75eac2c37ee266e08",
+    "split": "dev",
+    "status": "completed",
+    "mode": "fake_diagnostics",
+    "included_in_final_metrics": false
+  },
+  {
+    "path": "artifacts/eval/step18-rrf-real-preflight/manifest.json",
+    "sha256": "6b9aa0671dc3a26cb50bcc4d63c6de2c752e46fd088b4e4e7e27991f0d794feb",
+    "split": "dev",
+    "status": "not_run",
+    "mode": "not_run",
+    "included_in_final_metrics": false
+  },
+  {
+    "path": "artifacts/eval/step19-rerank-dev-fake/manifest.json",
+    "sha256": "8846a7e17f000a7ea2847dd6415bb73466b641eda816cc839ca6c42738f5e565",
+    "split": "dev",
+    "status": "completed",
+    "mode": "fake_diagnostics",
+    "included_in_final_metrics": false
+  },
+  {
+    "path": "artifacts/eval/step19-rerank-real-preflight/manifest.json",
+    "sha256": "5cab9c7c2d8dca7d6afff3617235bcebbe8527a65c0ddbdee45fc3a6e8448015",
+    "split": "dev",
+    "status": "not_run",
+    "mode": "not_run",
+    "included_in_final_metrics": false
+  },
+  {
+    "path": "artifacts/eval/step25-preflight-final/manifest.json",
+    "sha256": "fbb5cdc098fe952e8b4ed2189abcc600a80f632a7b2ff196a947648301878e6f",
+    "split": "dev",
+    "status": "not_run",
+    "mode": "not_run",
+    "included_in_final_metrics": false
+  }
+]

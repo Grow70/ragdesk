@@ -1,0 +1,44 @@
+[
+  {
+    "arm": "A",
+    "module": "app.evaluate",
+    "arguments": [
+      "--split",
+      "test",
+      "--output",
+      "../artifacts/eval/step30/A-test-preflight"
+    ],
+    "exit_code": 2,
+    "scope": "preflight_only_no_models",
+    "working_directory": "backend",
+    "command_form": "portable equivalent; original execution used absolute paths"
+  },
+  {
+    "arm": "B",
+    "module": "app.evaluate_rrf",
+    "arguments": [
+      "--split",
+      "test",
+      "--output",
+      "../artifacts/eval/step30/B-test-preflight"
+    ],
+    "exit_code": 2,
+    "scope": "preflight_only_no_models",
+    "working_directory": "backend",
+    "command_form": "portable equivalent; original execution used absolute paths"
+  },
+  {
+    "arm": "C",
+    "module": "app.evaluate_rerank",
+    "arguments": [
+      "--split",
+      "test",
+      "--output",
+      "../artifacts/eval/step30/C-test-preflight"
+    ],
+    "exit_code": 2,
+    "scope": "preflight_only_no_models",
+    "working_directory": "backend",
+    "command_form": "portable equivalent; original execution used absolute paths"
+  }
+]

@@ -1,0 +1,162 @@
+{
+  "status": "not_run",
+  "execution_mode": "not_run",
+  "split": "test",
+  "created_at": "2026-09-30T15:35:38.657341+00:00",
+  "code": {
+    "git_commit": "21f640f81060773d391dbc6bd5506b15de06df74",
+    "git_dirty": false,
+    "source_files": {
+      "backend/app/__init__.py": "0a04acce45ad76dc038789a9e64c0735272dc98fcb56becd9f86b6b8e6d10d7a",
+      "backend/app/agent/__init__.py": "5c11dfab03355c326f1e46a3ebf6df06c52ab2ba455c42fd1bfd28bfa5cd5a84",
+      "backend/app/agent/contracts.py": "b4da4ad47060c83d5b9557b37f769dc40a8feaad03419fdc74e1dbafdaf2591a",
+      "backend/app/agent/decision.py": "11124f19ab46c1223675b90d1175df3702a868373a843ffaebd1b37c46e44e4a",
+      "backend/app/agent/graph.py": "cc455a49511bea802d9a0f9e41f08d00779b28b620aa4ff078d20166992d1271",
+      "backend/app/agent/loop.py": "e9347e2831bb41c8a04f6ad577e3bc1589272411081270f4eac95a716d85657d",
+      "backend/app/agent/tools.py": "010c30c952ef7dc1f6683ea38e89b44791f07a141ecacaf7976106fd095bc169",
+      "backend/app/api/__init__.py": "5a9e4841101c06e2be45baa67ba4bafc28e1485fbaf7f94d00d6ea45553c7c94",
+      "backend/app/api/answers.py": "7f015a95f9478fac1510017e72752baa344e5539f3c1c343d478e0dec7eccc9d",
+      "backend/app/api/auth.py": "5249364b812030dc27174abc056fa347c5eedd93a0de0f420b00abeffe4a1463",
+      "backend/app/api/dependencies.py": "0179d3c6adc87f812fdfa143e1ab792f4f44f816163ca8118b159251a2c9533f",
+      "backend/app/api/documents.py": "c15ee0ff881d590467be41b901208878c3c21c3eef666fa14aabba1a6d223727",
+      "backend/app/api/health.py": "b16e72d7ea08c933536aa231d7fdfebfb5d50f1efd7bfb2b0756f75e77173a56",
+      "backend/app/api/knowledge_bases.py": "afc41c76494723fb00381342391a86199758e28abb96710b046237a732f2f212",
+      "backend/app/api/retrieval.py": "b60373657994a13eeb5ccfc1e940a99f644b011b834ff003f1a3713a0ff9ceea",
+      "backend/app/chunking.py": "6baddbf057c74d28a31b7297f428cb12fd24b635ff1a40387946a49159b0f06d",
+      "backend/app/config.py": "623aaa6cbfd4349676d53e39ca09a16662f0b005575dbd4f9faf43200b0723be",
+      "backend/app/container_runtime.py": "78e45f74e784296615b16736e1576ed30a40463f5b6e209c5907df3b99f912fa",
+      "backend/app/evaluate.py": "562a7a836e4fd0d2c0c241b90d021df83603491a0793dc1e03abf3df5a216bb2",
+      "backend/app/evaluate_agent.py": "a27bb35b63af206d46e92a4f2d23404b0383847749e8e1c0067857f10dac293a",
+      "backend/app/evaluate_bm25.py": "fc53d9d98eacc9bc055869f3af161d4ce2ac806f5109c6bb49d14301d595c3d5",
+      "backend/app/evaluate_rerank.py": "7f347980c0247ca58fb76df84c0106c6e13f7f5ec9f61a58f0f3c522bcad4852",
+      "backend/app/evaluate_rrf.py": "64ad3b8d6629cc877e996d17d591097aea205131d306a3d4869181e4bebefb69",
+      "backend/app/evaluation/agent_comparison.py": "5f208808c7cbe8f558a0cd3b90427a55bb7cd4d61fa9b840dd51da4aeb12f14c",
+      "backend/app/evaluation/agent_metrics.py": "a3e8b7a52f96ad515cb5815a6bfbb529ba156698c9064408090756ef66a16d36",
+      "backend/app/evaluation/comparison.py": "fd2e2ebabb670c0cda3830f990f60475306e30f930aaecb593cb5b2118d9278f",
+      "backend/app/evaluation/data.py": "b76a82e13e719bbef35a457aaa4f4aa4fa328aa5ab2a62842b4c20cff067d908",
+      "backend/app/evaluation/metrics.py": "6271b04bca63d7707f9f07c66406df1b9ca46c182b69f9cb96cd7a1f98effcbc",
+      "backend/app/evaluation/rerank.py": "81becba8e2dbaf75a35caea219279dc1a2075fac954e50967349c7d8b24bfc93",
+      "backend/app/evaluation/runtime.py": "c6c9a8da77ba804d5077ba36a4b5556dad67d7fce4bde96cf70714586be15916",
+      "backend/app/http.py": "4b129375ccd738645c6be98c2f53cc215fd6a80676ba12a32d541b5c3fd2a720",
+      "backend/app/ingest_document.py": "bddd85a45422b4fc5e5e7a886ac9eb65d6151726d5421c10752587c5054ef872",
+      "backend/app/init_demo_users.py": "e9b56e921d7c0c8f1b773687bc902cdb3f107ea6614ad6562fb4fb05b8e11b1e",
+      "backend/app/llm/__init__.py": "d136e8c96aab8ac26dae1849a15e5c494f689f8446977857472bc789aadfc976",
+      "backend/app/llm/budget.py": "7ee9f079f84c8e64e9c9e32b5f8d03eac1a5de9162e502efcdad9b95ceac21cf",
+      "backend/app/llm/contracts.py": "f028f6c373f62ec72b00bb26db8302f69acc5c887b3680e81490edace43e36ec",
+      "backend/app/llm/fake.py": "bd4f02f3ae85f7fe61321ac049c01cfc3e003b69822af846913d962138c75745",
+      "backend/app/llm/openai.py": "8a31897f0a749e3965c36f995b64cbd7019a4eb68d85de9b732f70dfacd1af11",
+      "backend/app/main.py": "30be083a781f18b7f4a50be8fad8f1134d93ce0326526822bbbcae864b333cb0",
+      "backend/app/models.py": "b14f8f2a8a60c6a634e989180a7a5e5d10df3af999cbccad2dd194f6980dbecf",
+      "backend/app/parsers/__init__.py": "094e84656b2b3a5e7b6ea1c5a9d7a337906b85095740ca765d92c348e28c7f37",
+      "backend/app/parsers/cli.py": "117044974d7f8f5ab4ffbe09a7a96bd97d0a5bcd6b331315a3f4f4bee89f97a8",
+      "backend/app/parsers/pdf.py": "87f76db709fcaaefe509cf57b1e8e00b3fb89d2b3c19106a950c773357e2c36e",
+      "backend/app/parsers/text.py": "3efff371b40975d61d5a7f522375dfbb1d31043f9d4af657e98d2f7a6d0679cd",
+      "backend/app/repositories/__init__.py": "ef5be38d6b24d5c2fd22b122de4aa95d866a5c1de2914c49d4986acf9627c531",
+      "backend/app/repositories/chunks.py": "21d0d50381bc6dea71e7c396f8bd9ab3a40e8a85d3692e24ae52b1ec1b1bbb7d",
+      "backend/app/repositories/documents.py": "a6bc48c05c6302ea6ebf948d8852779955cb66384ac39b26a3f3ff5ddfb417f7",
+      "backend/app/repositories/knowledge_bases.py": "44942f6bc2e5a3d0a0fb87a5cee277000c15dff991689f6973bddf4dbb64c43c",
+      "backend/app/repositories/sources.py": "9a632c16aac11d556e916ce77591282ca8adda7473b886ed2cdecb1d68b083f3",
+      "backend/app/retrieval/bm25.py": "12c9f1165c5ba4a5b9944ac73eaf858e574c6ef0590713ae4cbaa5922e50be15",
+      "backend/app/retrieval/reranker.py": "06f627402a1107ed06c1ca7c6a8876423934cbf8dac747a06e85c388c46246d0",
+      "backend/app/retrieval/rrf.py": "50483cee346db1b521b0c83c684f5498f8dea28ca1010c98b0b6f93e69183eff",
+      "backend/app/retrieval/vector.py": "3851eeac1ebbca0d00e45a9ede67ed0cbde4a4e758bede13b6cc3a3f74451a4d",
+      "backend/app/services/__init__.py": "5ee368b8b403ddb926e38792d6c660d7a6ec88ea5bd628ded82a91e52931d2f1",
+      "backend/app/services/agent_answers.py": "e8dc1dc3654d8cc04a23d352ea3b7c4a8f44bb7ba54add97172e2de255aeb0aa",
+      "backend/app/services/answers.py": "659e2eb787d3282beff677c466aaeef3f58a348e62feff7d724ea7ed35bb9f56",
+      "backend/app/services/auth.py": "c49005a45977accb3232d619adaa7e0a34f1eae93612a2973c36eb991395fc88",
+      "backend/app/services/bm25.py": "f0c66d14fcc31769662bb6061c759335dad1efe55c6d59ad1a113ecbb3a3217a",
+      "backend/app/services/documents.py": "b08ccab9f7cc3987f4c56382b53edfd399ec29fed62ec596df14062092d8657a",
+      "backend/app/services/hybrid.py": "e3e8205fe152bc64f7ba498022351dd2edfe0b2f39e65984e62b0b2d02a14b51",
+      "backend/app/services/ingest.py": "ac409b92c4bebde73dd5bebbfd89de0ade87751ce4daa87dac83640bdb59801d",
+      "backend/app/services/ingestion_jobs.py": "92e81299df9f2919e9e27650fb36992430f8fc6df636b9246a9fbb10190ec9a6",
+      "backend/app/services/knowledge_bases.py": "128f786952afdc3003399f9764798ea31158e5776e8689afbacc6ede5634ac2a",
+      "backend/app/services/reranked.py": "f3f6d179e7235bf9379278b926018eca51f5cbfc781381174e9c2947a72dc7f2",
+      "backend/app/services/retrieval.py": "5b1bb50a8870e7f3543d1745c4ab967a3db27868f40a50043a24ddd48f8e2b6e",
+      "backend/app/services/tool_sources.py": "3e5b945e5f4d2e3e56271514d2ed54604d3d2b7b25e8df0aab2a13378c9421aa",
+      "backend/app/services/traces.py": "ad8d2953f0cc7f42b3ad79683160af44b2e1ffaa0eed35afcba3b738ca76fa46",
+      "backend/app/worker.py": "8449742b10efa48170ebbc42ed3d391031a5159f54976f802bbe97e87f404750",
+      "backend/pyproject.toml": "44759571d3d0d50b35a5aa25928d05473076546871458a37805c5871d6f12435",
+      "backend/uv.lock": "3d890ddc168cef9ee2ad998ff8e05b083b58cd735bdc6388953d2221182c38c2"
+    },
+    "source_tree_sha256": "0ef9ff1b10d61ac030e5c13ec1b554773c7fe65c1d5246b5c05576614055afc4",
+    "python": "3.12.3"
+  },
+  "strategy": {
+    "metric": "cosine_distance",
+    "search": "exact",
+    "top_k": 5
+  },
+  "context_budget": {
+    "total": 16384,
+    "output_tokens": 1024,
+    "overhead": 1024
+  },
+  "model_config": null,
+  "index": null,
+  "blockers": [
+    "UNREVIEWED_SAMPLES",
+    "REAL_RUN_NOT_REQUESTED"
+  ],
+  "raw_output_scope": "Adapter results and HTTP response bodies; known API key redacted. No request headers; network failures may have no response.",
+  "dataset_sha256": "455ea770c675676303e1f61fdc08e1db01e556ba70bd4f5d2f4912aaca2f25db",
+  "corpus_manifest_sha256": "5c448dce744c83344ae39e33b2347543f75279d96464c979d4ab61799d54654a",
+  "corpus_documents": [
+    {
+      "document_id": "A-EXP-001",
+      "kb_key": "A",
+      "path": "a/A-EXP-001.md",
+      "title": "A 库差旅报销规则",
+      "file_sha256": "4777a93b247400c2ab5eb70bd7f0129728da9bdb8889371be3ae5129caac260f"
+    },
+    {
+      "document_id": "A-TRV-002",
+      "kb_key": "A",
+      "path": "a/A-TRV-002.md",
+      "title": "A 库差旅出行审批",
+      "file_sha256": "253b1260b35a5dafa705064e2014eb8a3a631562f591494625e5ae2998c8a6f9"
+    },
+    {
+      "document_id": "A-LEV-003",
+      "kb_key": "A",
+      "path": "a/A-LEV-003.md",
+      "title": "A 库休假与调休说明",
+      "file_sha256": "d8eaabeee8bfb8b6ed4350459c9ba353b64c8f1c5dc4e2480c4a74adcf582ac5"
+    },
+    {
+      "document_id": "A-PRD-004",
+      "kb_key": "A",
+      "path": "a/A-PRD-004.md",
+      "title": "NX-210 产品能力说明",
+      "file_sha256": "2a04684ba0ceff753aad8904f7ee861ae4d1cf9509456825dcadc18ee3906ece"
+    },
+    {
+      "document_id": "A-API-005",
+      "kb_key": "A",
+      "path": "a/A-API-005.txt",
+      "title": "A 库 NX-210 接口错误码",
+      "file_sha256": "6b824555c07e21ea1269b7ad82bcb84d0b9fb7fe32755010e1fdc69d2a39e9a3"
+    },
+    {
+      "document_id": "A-OPS-006",
+      "kb_key": "A",
+      "path": "a/A-OPS-006.md",
+      "title": "A 库运维事件流程",
+      "file_sha256": "977d92f5becf68b7ed58c67fe2abb93e92f95e435ab9720efb15a32e9ffb94a3"
+    },
+    {
+      "document_id": "B-EXP-001",
+      "kb_key": "B",
+      "path": "b/B-EXP-001.md",
+      "title": "B 库差旅报销规则",
+      "file_sha256": "65fdfe968f8c0a33e691bcb320de1364a41e1462a7b96d31bcb1e01f8da2d321"
+    },
+    {
+      "document_id": "B-OPS-002",
+      "kb_key": "B",
+      "path": "b/B-OPS-002.txt",
+      "title": "B 库运维事件流程",
+      "file_sha256": "2d86cad8a1c5c6539f7121e6af4d28ea78f17c7d335448c15931c9a1f3435706"
+    }
+  ],
+  "selected_n": 15
+}

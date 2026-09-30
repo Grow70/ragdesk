@@ -1,0 +1,91 @@
+{
+  "status": "observed_code_defaults_not_an_approved_final_experiment_configuration",
+  "dev_tuning_finished_user_statement": true,
+  "independent_dev_freeze_record": null,
+  "models": {
+    "chat_model": "gpt-4.1-mini-2025-04-14",
+    "embedding_model": "text-embedding-3-small",
+    "embedding_dimensions": 1536,
+    "model_connect_timeout_seconds": 5.0,
+    "model_read_timeout_seconds": 30.0,
+    "model_max_attempts": 3,
+    "rerank_model": "rerank-v3.5",
+    "rerank_enabled": false,
+    "rerank_connect_timeout_seconds": 3.0,
+    "rerank_read_timeout_seconds": 10.0
+  },
+  "runtime_index": null,
+  "kb_mapping": null,
+  "actual_model_dimensions_observed": null,
+  "embedding": {
+    "provider": "openai",
+    "model": "text-embedding-3-small",
+    "dimensions": 1536,
+    "config_version": "raw-v1",
+    "chunk_size": 600,
+    "overlap": 80,
+    "batch_size": 16
+  },
+  "encoding": "raw-v1: query/document text sent without asymmetric prefixes",
+  "retrieval": {
+    "A": "exact cosine distance, top_k=5",
+    "B": {
+      "vector_candidates": 20,
+      "bm25_candidates": 20,
+      "rrf_k": 60,
+      "rank_starts_at": 1,
+      "top_k": 5,
+      "bm25": {
+        "k1": 1.5,
+        "b": 0.75,
+        "epsilon": 0.25
+      },
+      "preprocessing": "jieba-identifiers-v1",
+      "jieba_dictionary_sha256": "7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8"
+    },
+    "C": {
+      "rerank_candidates": 20,
+      "top_k": 5,
+      "implemented": true,
+      "real_provider_verified": false
+    },
+    "D": {
+      "implemented_tool_retriever": "vector",
+      "approved_final_selection": null,
+      "test_cli_supported": false
+    }
+  },
+  "fixed_answer_context_budget": {
+    "total": 16384,
+    "output_tokens": 1024,
+    "overhead": 1024
+  },
+  "system_prompt_sha256": "0d39811bb87eab30fb407e62cd5a050acb60357a80aa17053fb042358c0ff5d8",
+  "agent_round_limits": {
+    "tool_calls": 3,
+    "model_requests": 6,
+    "seconds": 60.0,
+    "context_chars": 24000
+  },
+  "agent_tool_limits": {
+    "search_text_chars": 240,
+    "read_text_chars": 1600,
+    "response_chars": 8000,
+    "total_text_chars": 12000
+  },
+  "effective_run_configuration": null,
+  "price_configuration": null,
+  "price_configuration_date": null,
+  "confounds": [
+    "B/C evaluators measure retrieval only, not fixed-RAG answers",
+    "Agent comparison CLI is dev-only; tools use vector retrieval",
+    "Agent previews/latest evidence/top_k/deadline differ from fixed flow; not a strict single-factor comparison"
+  ],
+  "environment_presence_only": {
+    "DATABASE_URL": false,
+    "JWT_SECRET": false,
+    "OPENAI_API_KEY": false,
+    "COHERE_API_KEY": false,
+    "EVAL_BEARER_TOKEN": false
+  }
+}
