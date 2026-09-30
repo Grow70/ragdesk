@@ -342,3 +342,13 @@
 - 归档验证：verify_final_evidence.py 对32个证据文件、15条冻结 test、60条 not_run、当前源码/资料及源码包校验通过；在临时副本分别修改字节、删除文件、把未知耗时填0、伪造已执行数量，四项均被拒绝，结果已存 archive-validation.json。Ruff check/format、git diff --check 通过。只使用标准库校验，无新依赖；已核对 Python hashlib 官方文档。未运行模型、数据库实验或全项目回归，不把静态/完整性通过报告成效果验证。
 - test 使用声明：本步读取 test 做原文/位置与完整性预检，没有基于模型输出修改实现；不能从摘要独立证明历史上 test 从未曝光。若今后依据 test 修改代码、提示词、参数或标注，须记录污染与版本并另建独立 test，不能保留“未见测试集”标签。既有 dev/fake 产物只以路径/哈希索引保存，未纳入最终效果，未覆盖向量基线。
 - 遗留与下一步入口：需要交接已人工复核冻结题集、最终配置与授权真实评测索引/映射、明确预算，并解决 B/C 全问答与 D test 评测入口限制后，才能在新目录实际运行并人工评分。本步报告明确全部方案“未执行”；没有自动进入下一编号任务、commit/push、部署、购买服务或收费 API 调用。
+
+
+## 第 31 步：求职材料与证据审查（2026-10-01）
+
+- 已完成：README 增加业务问题、当前 Mermaid 架构、功能/边界、历史验证与最终实验状态、参考项目及具体采用范围；保留 PowerShell Compose 全流程并修正“尚未接入 RAG”、宿主数据库 5432 和早期 Agent 状态的过时表述。新增 docs/demo-script.md、docs/resume.md、docs/interview-prep.md；没有修改业务代码、依赖、题集或原实验包。
+- 材料：三分钟脚本按登录→上传→入库→问答→引用→空库拒答→实际后端权限拒绝→Agent 补充检索组织；最后一段明确使用已有 fake 可控轨迹回放，不把默认 Compose 的一次搜索描述为再次检索。包含初始化、权限请求与轨迹/测试复现命令、任务未完成时的真实说明；尚未现场计时排练。简历恰好三条，每个子描述关联模块与测试；删除客户规模、准确率提升、HNSW、exactly-once、远端 CI 绿灯等无证据说法。14 道面试题覆盖指定主题，每题含简答、代码符号、验证和局限。
+- 历史运行核对：重新读取第 29 步 backend-final.xml（364 tests、0 failure/error/skip）、e2e.xml（4 tests、0 failure/error/skip）、browser-contract-final.txt（36 passed），第 28 步 Compose report（10 个检查 passed）及第 24B 步 demo.txt（fake，2 次工具/6 次模型请求）。reports/evidence/step31/engineering-validation.json 保存原摘要、轨迹、来源路径和 SHA-256；五份原日志在 artifacts 忽略目录，不包含模型密钥或请求头。没有把摘要当作第三方认证，也没有把历史测试计为本步重跑。
+- 实际本步验证：四份面向求职的文档中 142 个本地链接目标、52 个测试名称引用与 5 份原始证据哈希均通过检查；verify_final_evidence.py --check-working-tree --check-source-archive 通过（32 文件、15 条 test、60 条 not_run），check_eval_set.py 通过（30 条 draft，字段、分组、原文、冻结摘要一致）。git diff --check 通过。人工逐条核对三条简历与代码/测试/报告；使用官方 pgvector、LangGraph、jieba、rank_bm25 和 RRF 文档核对引用范围，未安装或升级依赖。
+- 结果边界：真实 A/B/C/D 仍未执行，各 n=0；人工金标仍未完成，引用合法不证明事实正确。B/C 为独立检索服务/评测，默认问答与 Agent 仍向量；D 评测 CLI 仅 dev。没有运行收费 API、数据库/浏览器全量回归或新压测，没有宣称新的模型结果、演示计时或远端 Actions 通过。
+- 遗留与下一步入口：可按 docs/resume.md 选择描述、按 demo-script.md 准备本地演示，并结合 interview-prep.md 对照代码练习。真实效果缺口按 reports/final-evaluation.md 处理，尚未具备提高简历效果措辞的证据；本步不扩展实现，不自动 commit、push、部署或进入下一编号任务。

@@ -1,0 +1,115 @@
+{
+  "recorded_on": "2026-10-01",
+  "scope": "Historical local engineering validation; re-read in step31, not re-executed. All model results are fake. Not a real-model quality or performance evaluation.",
+  "materials_base_commit": "f147e2f87e915f137df20a343d54666ac2c33921",
+  "step29_code_commit": "21f640f81060773d391dbc6bd5506b15de06df74",
+  "environment": "WSL; Python 3.12.3; Node 24.21.0; Docker Desktop Linux/amd64; PostgreSQL+pgvector; Chromium. Remote Actions not executed.",
+  "sources_are_gitignored": true,
+  "entries": [
+    {
+      "source": "artifacts/validation/step29/backend-final.xml",
+      "sha256": "be17f88cbbd7d79a847b465a4f7640e083e3e4d271c891dd4a81d4a70477e7ae",
+      "counts": {
+        "tests": 364,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "passed": 364,
+      "suite_seconds": 136.895
+    },
+    {
+      "source": "artifacts/validation/step29/e2e.xml",
+      "sha256": "6f6695dc953ce52f58c5896afab182a05bda23dd78f846d29983e8ed3bb8f662",
+      "counts": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "passed": 4,
+      "suite_seconds": 42.321
+    },
+    {
+      "source": "artifacts/validation/step29/browser-contract-final.txt",
+      "sha256": "a059f3bb80492b772a20fe935000934b22a16939b98e6f3783c1f05b2bb7103e",
+      "summary_line": "36 passed (33.0s)"
+    },
+    {
+      "source": "artifacts/validation/step28/ragdesk-acceptance-d9bb0f42b3/report.json",
+      "sha256": "f6bc2c08bc4c8be49d8c9f88c1aca982d86ec00515fa3a63a22671b1cb77774e",
+      "report": {
+        "mode": "fake",
+        "project": "ragdesk-acceptance-d9bb0f42b3",
+        "checks": [
+          "locked_images_built",
+          "api_starts_without_ddl_and_unmigrated_database_is_not_ready",
+          "explicit_migration_is_repeatable",
+          "concurrent_migration_rejected",
+          "real_mode_without_key_fails_without_fake_fallback",
+          "static_frontend_proxy_login_upload_worker_rag_agent_sources",
+          "only_loopback_frontend_port_published",
+          "containers_recreated_original_file_and_database_retained_queued_job_completed",
+          "database_outage_api_reconnect_same_process_worker_restart_and_new_job_completed",
+          "application_logs_do_not_contain_test_secrets"
+        ],
+        "status": "passed",
+        "duration_seconds": 92.51
+      }
+    },
+    {
+      "source": "artifacts/validation/step24b/demo.txt",
+      "sha256": "94dcff0c2ecbd3df793e8d1afcccbc831e2baf414db47b02c1f30031a379d47a",
+      "trace": {
+        "validation": "fake_only",
+        "request_id": "11675c11762a425bbbd43788013bdc67",
+        "history": [
+          {
+            "step": 1,
+            "tool": "search_knowledge",
+            "query": "报销规则",
+            "argument_summary": {
+              "top_k": 1,
+              "chunk_ids": []
+            },
+            "status": "technical_failure",
+            "error_code": "MODEL_TIMEOUT",
+            "result_count": 0,
+            "output_chars": 278,
+            "evidence_ids": [],
+            "added": [],
+            "removed": [],
+            "changed": []
+          },
+          {
+            "step": 2,
+            "tool": "search_knowledge",
+            "query": "审批期限 680 CNY",
+            "argument_summary": {
+              "top_k": 1,
+              "chunk_ids": []
+            },
+            "status": "success",
+            "error_code": null,
+            "result_count": 1,
+            "output_chars": 539,
+            "evidence_ids": [
+              "82572b49-b8af-41fa-bb1a-eeb105cf11fa"
+            ],
+            "added": [
+              "82572b49-b8af-41fa-bb1a-eeb105cf11fa"
+            ],
+            "removed": [],
+            "changed": []
+          }
+        ],
+        "model_requests": 6,
+        "tool_calls": 2,
+        "context_chars": 817,
+        "final_status": "answered",
+        "termination_reason": "model_finished"
+      },
+      "summary_line": "1 passed in 1.86s"
+    }
+  ]
+}

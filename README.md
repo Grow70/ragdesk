@@ -1,12 +1,96 @@
 # Ragdesk
 
-面向模拟企业资料的知识库问答系统。当前提供认证、知识库权限、文档与解析、固定 RAG 问答、检索评测，以及数据库入库任务和单 worker。真实模型效果的验证状态见各步骤实验记录。
+面向**模拟企业资料**的知识库问答学习项目，用于展示 Python 后端、RAG 与受限 Agent 开发能力。要解决的问题是：报销、休假、产品和运维规则散落在文件里，用户需要在自己的知识库权限内查找答案，并打开原文核对。没有真实企业客户或生产使用规模。
 
-需求和后续实现契约分别见 [docs/requirements.md](docs/requirements.md) 与 [docs/architecture.md](docs/architecture.md)。
+**当前状态**：本地工程闭环和 fake 回归已验证；真实模型最终效果实验未执行。默认 Docker 演示使用 fake，不能证明语义检索、答案正确率或 Agent 自主决策效果。
+
+- [三分钟演示](docs/demo-script.md) · [三条简历及证据审查](docs/resume.md) · [面试准备](docs/interview-prep.md)
+- [需求](docs/requirements.md) · [架构契约](docs/architecture.md) · [进度与运行记录](docs/progress.md) · [最终实验报告](reports/final-evaluation.md)
+- 首次运行：见下方“本地 Docker Compose”；测试复现：见 [CI 说明](docs/ci.md)。后文保留各模块的调试命令。
+
+## 当前架构
+
+```mermaid
+flowchart TD
+    UI[React / TypeScript / Vite] --> Proxy[Nginx 同源代理]
+    Proxy --> API[FastAPI：JWT 身份 / 知识库授权 / request_id]
+    API --> Docs[文档服务：上传 / 删除 / 重建 / 任务查询]
+    Docs --> Files[受控原文件卷]
+    Docs --> PG[(PostgreSQL + pgvector)]
+    PG --> Worker[单 worker：领取 / 租约 / 心跳 / run_token]
+    Worker --> Parse[MD / TXT / pypdf → ParsedSection → 字符切块]
+    Files --> Parse
+    Parse --> Emb[Embedding 适配器]
+    Emb --> Publish[候选构建完整后短事务发布 active_build_id]
+    Publish --> PG
+    API --> Fixed[固定 RAG：向量检索 → 上下文 → Chat]
+    API --> Agent[LangGraph：决策 → 只读工具 → 再决策 / 结束]
+    Agent --> Tools[search_knowledge / read_chunks：逐次授权]
+    Tools --> PG
+    Fixed --> PG
+    Fixed --> Validate[引用校验 / 返回前重新检查来源与权限]
+    Agent --> Validate
+    Validate --> Trace[已校验答案 / 引用 / 请求 trace]
+    PG -. 授权有效块 .-> Experiments[独立服务与评测：BM25 / RRF / 可关闭 rerank]
+```
+
+API、services、repositories、parsers、retrieval、llm、agent 分层；模型调用在数据库长事务之外。图中的 BM25/RRF/rerank 是已实现的独立检索服务，**默认问答和 Agent 搜索仍用向量检索**。fake/real 由后端明确配置，真实调用失败不会偷偷改用 fake。
+
+## 已实现功能与边界
+
+| 能力 | 实现与验证范围 |
+| --- | --- |
+| 身份与权限 | Argon2id、过期 JWT；知识库管理员/成员；后端逐次授权；跨库检索、引用、下载和任务访问回归 |
+| 文档 | MD/TXT/文本 PDF，10 MiB 限制、SHA-256 去重、私有下载；解析定位、切块预览、删除与原文件重建 |
+| 入库一致性 | 数据库任务 + 单 worker；租约和 run_token 拒绝旧执行发布；全量构建成功才切换，重建失败保留旧版本 |
+| 固定 RAG | 精确 cosine 检索、上下文预算、结构化回答、后端补齐引用；无证据直接不足，技术故障单独返回 |
+| 检索实验组件 | jieba + BM25、两路 RRF、可关闭 Cohere 重排适配；有算法/协议测试，尚无真实效果提升证据 |
+| Agent | LangGraph 有界循环；模型可选择搜索、补读、改写后再搜索、澄清或结束；程序强制预算，fake 脚本验证分支 |
+| 前端与交付 | 登录、选库、文档管理、有限轮询、单轮固定/Agent 问答、来源和工具事件；Compose、锁文件、CI 工作流 |
+| 可审计性 | 请求 trace、usage/未知成本区分、评测逐题结果与配置/源码/资料摘要；事实和引用支持仍需人工审核 |
+
+## 测试与实验结果
+
+以下为**历史本地运行**，第 31 步重新读取原始日志核对，未重跑整套测试。[可分享摘要与原日志哈希](reports/evidence/step31/engineering-validation.json)、[详细运行及修复记录](docs/progress.md)、[复现方法](docs/ci.md)。不要将不同套件累加为覆盖率或模型准确率。
+
+| 检查 | 实际结果 | 解释 |
+| --- | --- | --- |
+| 第 29 步后端 CI 套件 | 364 passed，6 deselected，0 skipped | 含真实 PostgreSQL+pgvector；模型为 fake/协议模拟。排除 4 个另跑浏览器夹具及 2 个收费烟测 |
+| 第 29 步真实浏览器/API/worker 套件 | 4 passed | Python 夹具数；内层 Playwright 不重复计数，模型为 fake |
+| 第 29 步浏览器 HTTP 契约 | 36 passed | 模拟 HTTP 响应，与真实后端 E2E 分开 |
+| 第 28 步独立 Compose 验收 | 10 个检查通过 | 新测试卷启动、持久化、断库恢复及 fake 闭环；不是吞吐量压测 |
+| 最终 A/B/C/D 真实模型对比 | **未执行，实际每方案 n=0** | 无准确率、召回提升、真实延迟或费用结论 |
+
+资料为 8 份虚构文档、2 个逻辑知识库；30 道题中 dev/test 各 15，全部仍为 draft，未完成人工金标复核。A 有 test 固定问答评测入口；B/C 入口仅检索；D 比较入口仅 dev。完整状态、逐题 not_run 与待补条件见[最终实验报告](reports/final-evaluation.md)。没有真实结果时，不比较方案优劣，也不把未知指标填成 0。
+
+上表后端全量运行后还有空密钥环境处理的定向检查 41 passed，未再重跑全量；远端 GitHub Actions 未触发验证。原始日志在 Git 忽略的 `artifacts/`，分享时可携带脱敏原件或按命令重跑；摘要不是独立的第三方认证。
+
+## 已知限制
+
+- 真实 Chat、Embedding 和 rerank API 尚未实际验证；没有证据宣称 Agent 或混合检索优于固定 RAG。默认重排关闭。
+- 默认 fake 向量无语义能力，Chat 回显片段而不判断回答是否充分，Agent 固定一次搜索后结束；补充检索演示另用明确标注的可控测试轨迹。
+- 引用 ID、权限和原文定位通过校验，不等于结论受证据支持；提示注入的真实模型抵抗效果也未验证。
+- 暂无 OCR、复杂表格/双栏恢复；PDF 混合无文字页会告警且不发布完整索引。切块按字符，输入预算用保守 UTF-8 字节估算，并非精确 token 计数。
+- 精确向量搜索，没有 HNSW/IVFFlat；BM25 按请求建集合，无跨请求缓存，没有生产规模性能结论。
+- 单 worker 与本地文件卷；外部模型调用可能重复，不承诺端到端 exactly-once。没有公网部署、SSO、刷新令牌或生产高可用。
+- 前端令牌在内存，刷新重新登录；每题独立，无多轮记忆、SSE 或逐 token 流式生成。Windows 原生 PowerShell、ARM64 全流程未验证。
+
+## 参考项目与借鉴范围
+
+本仓库可核实的是以下开源组件和官方用法；未发现可证明以某个完整 RAG 应用为底座的记录，不把 Dify、RAGFlow 等写成项目来源，也不宣称“所有算法从零实现”。依赖版本以 [uv.lock](backend/uv.lock)、[package-lock.json](frontend/package-lock.json) 为准，本步不升级依赖。
+
+| 参考项目/资料 | 实际采用范围 | 本项目负责的实现 |
+| --- | --- | --- |
+| [pgvector](https://github.com/pgvector/pgvector) | 向量列与 cosine distance 运算 | 授权/有效构建 SQL 范围、配置兼容与排序回归；未使用 ANN 索引 |
+| [LangGraph](https://docs.langchain.com/oss/python/langgraph/overview) | StateGraph 节点和条件边编排 | 只读工具上下文、预算、去重终止、引用复验；未采用其完整现成 Agent 应用 |
+| [jieba](https://github.com/fxsjy/jieba)、[rank_bm25](https://github.com/dorianbrown/rank_bm25) | 中文分词和 BM25Okapi 评分 | 标识符保护、统一预处理、授权候选集合与共同词项筛选 |
+| [Elasticsearch RRF 文档](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/reciprocal-rank-fusion) | 排名融合公式作为参考 | 本地实现 `1/(60+rank)`、去重、稳定排序及 trace；没有引入 Elasticsearch |
+
+认证、迁移、前端和 Compose 的其他官方参考链接保留在[架构契约](docs/architecture.md)、[前端说明](docs/frontend_question.md)与下方启动章节。以上范围由当前 import、调用代码和既有文档核对，不能代替第三方许可证审计。
 
 ## CI 与关键回归
 
-[第 29 步 CI 说明](docs/ci.md)包含工作流、本地复现命令和逐项覆盖映射。GitHub Actions 运行真实 PostgreSQL+pgvector 集成、前端构建及 fake 模型浏览器闭环；缺数据库或意外跳过会失败。自动 CI 不注入收费 API 密钥，真实模型烟测独立手动运行。实际已执行/未执行状态见[进度记录](docs/progress.md)。
+[第 29 步 CI 说明](docs/ci.md)包含工作流、本地复现命令和逐项覆盖映射。GitHub Actions 工作流配置为运行真实 PostgreSQL+pgvector 集成、前端构建及 fake 模型浏览器闭环；缺数据库或意外跳过会失败。自动 CI 不注入收费 API 密钥，真实模型烟测独立手动运行。实际已执行/未执行状态见[进度记录](docs/progress.md)。
 
 ## 本地 Docker Compose：从空环境到首次问答（PowerShell）
 
@@ -148,7 +232,7 @@ Set-Location ..
 .\backend\.venv\Scripts\python.exe backend/tests/compose_acceptance.py
 ```
 
-报告位于 `artifacts/validation/step28/ragdesk-acceptance-<随机值>/report.json`，原始命令输出与 fake 回答在同目录；全部被 Git 忽略。WSL 可用 `backend/.venv/bin/python backend/tests/compose_acceptance.py --docker /mnt/d/soft/Docker/resources/bin/docker.exe`（按本机 Docker CLI 路径调整）。本步实际验证 WSL + Docker Desktop 的 Linux/amd64 容器，10 个端到端检查通过；Windows 原生 PowerShell、ARM64 与真实模型调用未验证。这里的 fake 检查不是模型效果测试。
+报告位于 `artifacts/validation/step28/ragdesk-acceptance-<随机值>/report.json`，原始命令输出与 fake 回答在同目录；全部被 Git 忽略。WSL 可用 `backend/.venv/bin/python backend/tests/compose_acceptance.py --docker /mnt/d/soft/Docker/resources/bin/docker.exe`（按本机 Docker CLI 路径调整）。第 28 步实际验证 WSL + Docker Desktop 的 Linux/amd64 容器，10 个端到端检查通过；Windows 原生 PowerShell、ARM64 与真实模型调用未验证。这里的 fake 检查不是模型效果测试。
 
 镜像下载与依赖安装需要网络。Docker Hub 的认证/连接错误应检查 Docker Desktop 与当前终端的代理配置；不要通过删卷或更改应用密码解决网络下载失败。日志可用 `docker compose logs --tail 80 backend worker` 查看；避免分享 `.env` 或展开后的 `docker compose config`（含密钥），用 `config --quiet` 检查即可。实际验收及未验证项见 [进度记录](docs/progress.md)。
 
@@ -225,7 +309,7 @@ uv run --locked pytest -q tests/test_chunker.py
 
 重叠能让跨切分点的事实在相邻块中保有上下文，提高这类问题的召回机会；也会增加存储、嵌入成本和相近检索结果。统计中的 `duplicate_chunks` 只表示正文完全相同，`short_chunks` 指短于块上限一半，不能据此推断真实检索效果。
 
-## 模型适配层（尚未接入 RAG）
+## 模型适配层（独立调试入口）
 
 第 12 步提供 OpenAI 聊天和向量客户端，以及需由测试显式创建的离线 fake。真实客户端缺少 `OPENAI_API_KEY` 会报错，真实请求失败不会回退 fake。默认模型分别是 `gpt-4.1-mini-2025-04-14` 和 `text-embedding-3-small`，向量配置为 1536 维。模型约束和来源见[模型配置](docs/model_config.md)。当前**真实接口未验证**。
 
@@ -328,21 +412,16 @@ uv run --locked alembic current
 
 首个迁移创建六张核心表，第二个迁移给用户添加可空登录名和 Argon2id 哈希列，以保留旧用户；均不包含向量列。迁移回退只在临时测试库中验证；不要对已有资料的数据库运行 `alembic downgrade base`，回退凭据迁移会删除登录名和密码哈希。
 
-若要运行数据库集成检查，在 `backend` 目录设置测试服务器连接（指向 Compose 的默认 `postgres` 库），测试会自行创建并删除名称随机的独立数据库，不改动 `ragdesk` 库：
+数据库集成测试使用有建库权限的**专用测试 PostgreSQL+pgvector**，会创建并清理随机测试库。请按 [CI 本地命令](docs/ci.md) 启动回环端口 55429 的独立临时容器并设置 `TEST_POSTGRES_ADMIN_URL`。当前 Compose 的数据库不发布宿主端口，不能直接连接 `127.0.0.1:5432`，也不要为了测试开放已有资料数据库。
 
-```powershell
-$env:TEST_POSTGRES_ADMIN_URL = "postgresql+psycopg://ragdesk:$($env:POSTGRES_PASSWORD)@127.0.0.1:5432/postgres"
-uv run --locked pytest -q
-```
-
-第一次创建数据库卷时，Compose 初始化脚本会启用 `vector` 扩展。已有卷不会重跑初始化脚本；必要时在仓库根目录执行 `docker compose exec db psql -U ragdesk -d ragdesk -c "CREATE EXTENSION IF NOT EXISTS vector;"`。Compose 镜像已固定标签与摘要，并只在本机回环地址暴露数据库端口。
+当前迁移还包含向量列、任务/租约与 trace 表，完整列表见 [Alembic versions](backend/alembic/versions)。`alembic upgrade head` 是显式初始化步骤，API/worker 启动不会自动执行迁移。
 
 ## 检查
 
-在 `backend` 目录运行：
+先按 [CI 说明](docs/ci.md) 配置专用测试数据库并关闭真实模型开关，再在 `backend` 目录运行；`--ci-suite backend` 缺库会失败，避免普通 pytest 跳过集成项后误报全部验证：
 
 ```powershell
-uv run --locked pytest -q
+uv run --locked pytest --ci-suite backend -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 ```
@@ -364,7 +443,7 @@ uv run --locked pytest -q tests/test_evaluation.py tests/test_evaluation_runtime
 
 ## BM25 单路检索
 
-第 17 步新增 `app.services.bm25.search` 和独立评测 CLI，使用锁定的 jieba 与 rank-bm25。每请求重新读取授权库的 ready active 块并建立集合；保留错误码、英文缩写及完整产品号，零/负 BM25 分数不会导致词面匹配被误删。统一结果中的 `bm25_score` 越大排名越前，`distance=null`。本步没有融合，也未替换现有向量问答。
+第 17 步新增 `app.services.bm25.search` 和独立评测 CLI，使用锁定的 jieba 与 rank-bm25。每请求重新读取授权库的 ready active 块并建立集合；保留错误码、英文缩写及完整产品号，零/负 BM25 分数不会导致词面匹配被误删。统一结果中的 `bm25_score` 越大排名越前，`distance=null`。该服务保持 BM25 单路；RRF 由下节独立服务提供，默认问答仍使用向量检索。
 
 在 `backend` 目录运行：
 
@@ -459,7 +538,7 @@ PowerShell 命令、价格格式、事件结构及一次实际离线请求的耗
 uv run --locked pytest -q tests/test_agent_tools.py
 ```
 
-测试使用真实临时 PostgreSQL 与 fake Embedding，不代表真实检索或 Agent 效果。下一步编排须由新的编号任务启动。
+测试使用真实临时 PostgreSQL 与 fake Embedding，不代表真实检索或 Agent 效果。编排已由后续第 24A/24B 步实现，见下文。
 
 ## 单次工具决策图（第 24A 步）
 
@@ -471,7 +550,7 @@ uv run --locked pytest -q tests/test_agent_tools.py
 uv run --locked pytest -q tests/test_agent_graph.py tests/test_agent_tools.py tests/test_answers.py
 ```
 
-状态字段、读取分支的前置候选、deadline 边界和后端调用示例见 [单次图说明](docs/agent_graph.md)。现有 HTTP 问答未切换成 Agent；本步不提供多轮自主检索或效果提升结论。
+状态字段、读取分支的前置候选、deadline 边界和后端调用示例见 [单次图说明](docs/agent_graph.md)。这是保留的单次调试入口；当前 HTTP 问答已支持 `mode=agent`，使用下节有界循环。单次入口本身不提供再次检索，所有真实模型效果仍未验证。
 
 ## 有预算的再次检索（第 24B 步）
 
