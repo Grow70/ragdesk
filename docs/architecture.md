@@ -459,3 +459,14 @@ flowchart TD
 - Markdown 使用 react-markdown，skipHtml，不引入原始 HTML 插件，不使用 dangerouslySetInnerHTML。普通外链/图片仅显示文本，不自动访问模型提供的资源；引用入口独立由后端 citations 数组生成。客户端仅验证响应形状，不据模型正文自行创建引用。
 - 问答客户端等待上限 75 秒（给默认 60 秒 Agent 与响应开销留余量），其他接口仍 15 秒。固定 RAG 的已有模型超时机制不变，浏览器等待超时不表示后端已终止。明确展示资料不足、澄清、预算结束、504、权限失效和校验失败，不生成模拟成功答案。
 - 先验证：固定/Agent 成功及受保护来源、事件过滤/trace、未知 mode/伪造身份与历史拒绝、假引用/坏输出、超时、调用中撤权；浏览器 Markdown 注入、独立问题请求、切库/模式/离开时取消、迟到回答/来源隔离、410/404/401 与空/过长问题。离线 fake 与真实模型效果分开记录。
+
+## 第 28 步契约：本地 Compose 交付
+
+- 四个常驻服务 frontend/backend/worker/db，加显式一次性 migrate 初始化服务；单 worker，不支持横向扩容。前端构建静态文件并由 Nginx 同源代理 /api 到后端；只发布 127.0.0.1 的网页端口，数据库与 API 不发布宿主机端口。
+- 镜像固定版本及官方仓库摘要，后端 uv sync --locked --no-dev，前端 npm ci；构建上下文白名单排除环境文件、密钥、上传资料、数据库、测试产物与宿主机虚拟环境。
+- pgdata 与 uploads 为 Compose 项目命名卷；API 和 worker 共享上传卷，前端不挂载。down 默认保留卷；down -v 仅用于明确授权的测试环境清理。fake/real 使用不同项目名及卷，不自动迁移或混用已有索引。
+- 迁移只由显式 migrate 命令执行，不在 API/worker 启动时执行；迁移入口持有 PostgreSQL 会话 advisory lock，第二个并发迁移立即报错。启动依赖 db healthy；backend/worker readiness 校验数据库连接及当前 Alembic head，frontend 等待 backend ready。
+- 沿用现有 SQLAlchemy pool_pre_ping；数据库中断时新请求允许明确失败，恢复后重新取连接。worker 因数据库异常退出后由 Compose restart 恢复，持久任务按既有租约重领，不重放任意 API 写事务，不宣称端到端 exactly-once。健康检查不证明模型可用或任务已处理。
+- 容器入口明确接受 RAGDESK_MODE=fake|real。fake 显式使用既有 fake Embedding、标注 FAKE 的确定性片段回显 Chat 和一次搜索后结束的 fake 决策，并清除模型密钥；不是语义问答/自主 Agent 效果。real 使用现有真实模型适配器，启动 API/worker 时要求密钥，失败不会降级 fake。宿主机原有 app.main 工厂行为不变。
+- 密钥由 Compose 从本地未提交的 .env/进程环境注入；根目录 .env.example 只有空密码/密钥项。数据库 URL 在容器内用 URL.create 编码密码，不把秘密写进镜像。演示账号仅显式交互创建，无默认账号密码；首次库通过既有认证 API 创建。
+- 先验收：缺配置/非法模式/real 缺密钥明确失败且不泄密；fake 不调用网络模型；迁移前 readiness 失败/显式迁移后成功与并发锁；空项目构建启动、登录上传→worker→固定/Agent fake 问答；重建容器后原文件/数据/任务仍在；停库导致未就绪、恢复后 API/worker 继续；仅回环网页端口可见。无法执行的平台/真实模型步骤单独标未验证。

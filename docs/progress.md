@@ -297,3 +297,18 @@
 - 工程检查：最终 TypeScript + Vite build、全前端 Prettier、4 个本步 Python 文件 ruff check/format、uv lock --check（77 包）、git diff --check 均通过。已检查真实单轮问答截图。没有执行后端全项目回归，结果仅指上述相关测试；浏览器仅 Chromium，PowerShell 命令已提供但未在 Windows 原生执行。
 - 文档/清理：README、architecture、docs/frontend_question.md 同步了接口请求/响应、启动/验收命令、安全与取消边界和面试追问。日志与模拟截图在忽略目录 artifacts/validation/step27/，不记录密码/令牌/浏览器 trace 或视频。成功夹具清理随机数据库与测试应用进程，专用 ragdesk-step27-pg 已停止并通过 --rm 自动移除；不关闭用户 Docker Desktop，不操作已有用户数据，没有 commit/push/公网部署。
 - 遗留边界与下一步入口：真实模型问答/tool calling 效果未验证；来源有效不等于结论正确。当前只支持基础 CommonMark，不增加表格/高亮插件。配置真实后端与兼容索引后可从“开始问答”使用；缺少模型配置明确报错，不自动换 fake。等待新的编号任务，SSE 若需要作为下一小步单独定义。
+
+
+## 第 28 步：本地 Docker Compose 交付（2026-09-30）
+
+- 已完成：frontend/backend/单 worker/PostgreSQL+pgvector 四个常驻服务，另设显式 migrate 初始化服务。6 个主要实现文件为 compose.yaml、docker/backend.Dockerfile、docker/frontend.Dockerfile、docker/nginx.conf、backend/app/container_runtime.py、.dockerignore；另补根 .env.example、README、架构契约、入口测试与独立 Compose 验收脚本。无业务表/检索策略/工具/前端业务修改，未进入下一编号任务。
+- 构建与配置：Python 3.12.13、uv 0.12.15、Node 24.21.0、Nginx 1.28.3、pgvector 0.8.6/PG17 镜像同时固定版本和官方仓库摘要；沿用现有 uv.lock（77 包）与 package-lock.json。实际执行 uv sync --locked --no-dev、npm ci 及前端生产构建成功。镜像上下文白名单排除 .env、资料、数据库、测试输出和宿主依赖；后端以 UID 10001 写入受控共享上传卷。
+- 数据和初始化：pgdata/uploads 命名卷按项目隔离；DB/API 不发布宿主机端口，前端仅绑定 127.0.0.1。容器启动不执行 DDL，显式 migrate 持有数据库 advisory lock，重复执行幂等，并发第二次报 MIGRATION_ALREADY_RUNNING。演示账号交互创建，无默认密码；数据库 URL 用 URL.create 编码，密钥从注入环境读取。README 写清 PowerShell 配置生成、构建、迁移、账号、首次上传/任务轮询/问答及重启命令。
+- 模式边界：fake 明确使用 SHA-256 onehot、标 FAKE 的授权片段回显和一次搜索后的固定决策；移除模型密钥，不代表语义检索或自主 Agent 效果。real 使用既有适配器，缺密钥启动失败，不自动回退 fake；推荐独立项目/卷，不能混入同一有效索引。向量维度沿用 1536。真实模型 API 本步未运行，无效果数字或费用结论。
+- 就绪与恢复：/health/ready 检查 DB、vector 扩展与迁移 head；依赖 service_healthy，检查不代表模型可用。沿用 pool_pre_ping，连接故障中的请求可失败，不自动重放写事务；worker 遇数据库故障退出，Compose restart 后继续处理持久任务，复用已有租约/run_token/尝试上限，外部模型调用仍可能重复。单 worker，不宣称分布式或 exactly-once。
+- 实际离线验证：test_container_runtime.py **10 passed（1.06 秒）**，含 fake/real 配置边界、密码编码、缺配置、技术错误脱敏、引用回显及固定决策终止。ruff check 与 format --check（3 个新增 Python 文件）、uv lock --check、git diff --check 通过。初次新验收脚本的长行检查失败，按诊断拆行后通过；未执行全项目测试，不宣称全量通过。
+- 实际容器验收：独立随机项目 ragdesk-acceptance-d9bb0f42b3，从空测试卷启动，**10 个检查 passed（92.51 秒，未含最后清理）**。覆盖固定镜像构建；未迁移启动无业务表且 schema 检查失败；显式迁移两次成功和并发迁移拒绝；real 缺 key 失败；实际 Nginx 静态资源/代理→登录→建库→上传 202→worker→固定与 Agent fake 问答→受保护引用；宿主仅回环前端端口；停 worker 后排队、down 不删卷再 up，原账号/文件字节保留且任务完成；停 DB 时 ready=503，原 API 容器未重建即恢复连接，worker RestartCount 增长且新任务成功；应用日志未出现测试密码/JWT 密钥/Bearer。
+- 环境问题与处理：此前沙箱因 WSL 挂载异常不能启动，经审批运行工作区命令；上一轮尾部自动审批配额拒绝，未执行的命令没有算作验证。本轮读取日志确认 Docker Hub 认证连接失败发生在镜像下载阶段。仅将现有 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 经 WSLENV 传给当前 Windows Docker CLI，构建重试成功；没有修改 Docker 全局代理、镜像版本或删用户卷。镜像摘要与依赖按官方文档核对，链接见 README。
+- 产物与清理：artifacts/validation/step28/build.txt 保留原失败，build-retry.txt 为成功构建；acceptance.txt 和随机项目目录下 commands.txt/report.json/fake-answers.json 保存实际结果，不含登录令牌。验收脚本清理了自身随机项目的容器/卷，随后 docker ps/volume ls 复核为空；未操作用户数据、关闭 Docker Desktop、commit、push、部署或购买服务。
+- 未验证：Windows 原生 PowerShell 全流程、ARM64、真实模型网络和效果；本步通过 HTTP 验证构建后的前端资源及同源代理，未重跑第 27 步浏览器交互套件。验收使用全新数据库/上传卷和锁定镜像，镜像层允许复用构建缓存，不宣称在全新操作系统上安装验证。测试脚本仅验证排队任务跨重建及数据库断连恢复，执行中崩溃 fencing 的故障注入结果仍引用第 20B 步，不冒充本次重跑。
+- 下一步入口：本步本地 fake 交付验收完成；按 README 使用自己的 .env 初始化本地项目。若另行授权真实模型验证，使用独立 real 项目/卷并单独记录；等待新的编号任务，不自动部署公网或继续扩展。

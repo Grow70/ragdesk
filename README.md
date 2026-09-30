@@ -4,43 +4,157 @@
 
 需求和后续实现契约分别见 [docs/requirements.md](docs/requirements.md) 与 [docs/architecture.md](docs/architecture.md)。
 
-## Windows PowerShell 启动
+## 本地 Docker Compose：从空环境到首次问答（PowerShell）
 
-前提：安装 Python 3.12、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和 Docker Desktop，并确保 Docker Desktop 已启动。以下命令从仓库根目录执行；本地演示密码请自行替换，不要提交到 Git。
+前提：安装并启动 Docker Desktop（Linux containers，Compose v2+），下载本仓库。无需在宿主机安装 Python/Node。以下从仓库根目录执行。默认仅 `http://127.0.0.1:8080` 可访问；数据库和后端不发布宿主机端口，不用于公网部署。
+
+### 1. 创建本地配置并构建
+
+仅首次创建 `.env`，不要覆盖已有配置。示例没有默认密码；下面生成本机使用的随机数据库密码和 JWT 密钥，并保存到 Git 忽略的文件。不要提交或分享该文件。Compose 注入环境变量，Python 本身不读取 `.env`。
 
 ```powershell
-$env:POSTGRES_PASSWORD = "change-this-local-password"
-docker compose up -d db
-docker compose ps db
+if (Test-Path .env) { throw '.env 已存在，请保留并检查配置' }
+Copy-Item .env.example .env
+function New-LocalSecret {
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    return ([BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant()
+}
+$config = Get-Content .env -Raw
+$config = $config.Replace('POSTGRES_PASSWORD=', ('POSTGRES_PASSWORD=' + (New-LocalSecret)))
+$config = $config.Replace('JWT_SECRET=', ('JWT_SECRET=' + (New-LocalSecret)))
+[IO.File]::WriteAllText((Join-Path (Get-Location) '.env'), $config, (New-Object Text.UTF8Encoding($false)))
+Remove-Variable config
 
-$env:DATABASE_URL = "postgresql+psycopg://ragdesk:$($env:POSTGRES_PASSWORD)@127.0.0.1:5432/ragdesk"
-$secretBytes = New-Object byte[] 32
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$rng.GetBytes($secretBytes)
-$rng.Dispose()
-$env:JWT_SECRET = [Convert]::ToBase64String($secretBytes)
+docker compose config --quiet
+if ($LASTEXITCODE -ne 0) { throw 'Compose 配置不完整' }
+docker compose build
+if ($LASTEXITCODE -ne 0) { throw '镜像构建失败，请先排查构建日志' }
+```
+
+默认 `COMPOSE_PROJECT_NAME=ragdesk-fake`、`RAGDESK_MODE=fake`。后端 `uv.lock` 与前端 `package-lock.json` 分别通过 `uv sync --locked --no-dev` 和 `npm ci` 安装；Python 3.12.13、uv 0.12.15、Node 24.21.0、Nginx 1.28.3、pgvector 0.8.6/PG17 镜像同时固定标签和 SHA-256 摘要。`.dockerignore` 使用白名单，不把密钥、上传资料或宿主机依赖目录送入构建上下文。
+
+### 2. 显式迁移、初始化演示账号、启动四个服务
+
+```powershell
+docker compose up -d --wait db
+if ($LASTEXITCODE -ne 0) { throw '数据库未就绪' }
+docker compose --profile init run --rm migrate
+if ($LASTEXITCODE -ne 0) { throw '迁移失败，暂不启动应用' }
+docker compose run --rm --no-deps backend init-demo --login-name alice --display-name Alice
+if ($LASTEXITCODE -ne 0) { throw '演示用户创建失败' }
+docker compose up -d --wait
+if ($LASTEXITCODE -ne 0) { throw '服务未就绪，请检查 compose ps/logs' }
+docker compose ps
+Invoke-RestMethod http://127.0.0.1:8080/api/health/ready
+```
+
+初始化账号时交互输入并确认至少 12 字符的自选密码；无默认账号、自动注册或生产默认凭据。同名账号再次初始化会明确失败，不重置密码。后续启动无需重复创建账号。
+
+只有显式 `migrate` 服务执行 Alembic；API/worker 不修改表结构。迁移入口用 PostgreSQL 会话 advisory lock 阻止并发迁移。`/api/health/live` 检查进程，`/api/health/ready` 检查数据库连接、vector 扩展和 Alembic head，未迁移时返回 503；就绪不代表模型服务可用。
+
+### 3. 登录、创建库、上传并等待 worker，再提问
+
+也可直接打开 `http://127.0.0.1:8080` 登录、选择库并操作页面；首次空库列表需先用以下已有接口创建知识库。前端令牌仅在内存，刷新需重新登录。
+
+```powershell
+$api = 'http://127.0.0.1:8080/api'
+$credential = Get-Credential -UserName alice -Message '输入刚才创建的演示密码'
+$body = @{ login_name = $credential.UserName; password = $credential.GetNetworkCredential().Password } | ConvertTo-Json
+$session = Invoke-RestMethod -Method Post -Uri "$api/auth/session" -ContentType application/json -Body $body
+Remove-Variable body, credential
+$headers = @{ Authorization = "Bearer $($session.access_token)" }
+Invoke-RestMethod "$api/auth/me" -Headers $headers
+$kbBody = @{ name = 'Demo Fake' } | ConvertTo-Json
+$kb = Invoke-RestMethod -Method Post -Uri "$api/knowledge-bases" -Headers $headers -ContentType application/json -Body $kbBody
+$sample = (Resolve-Path data/sample_docs/a/A-EXP-001.md).Path
+$uploadJson = curl.exe --fail-with-body -sS -H "Authorization: Bearer $($session.access_token)" -F "file=@$sample" "$api/knowledge-bases/$($kb.id)/documents"
+if ($LASTEXITCODE -ne 0) { throw '上传失败' }
+$uploaded = $uploadJson | ConvertFrom-Json
+$job = $null
+for ($i = 0; $i -lt 60; $i++) {
+    $job = Invoke-RestMethod "$api$($uploaded.status_url)" -Headers $headers
+    if ($job.status -notin @('queued', 'running')) { break }
+    Start-Sleep -Seconds 2
+}
+$job
+if ($job.status -ne 'succeeded') { throw '任务失败或等待超时，检查任务错误与 worker 日志' }
+$question = @{ question = '报销期限是多少？'; mode = 'rag' } | ConvertTo-Json
+$answer = Invoke-RestMethod -Method Post -Uri "$api/knowledge-bases/$($kb.id)/answers" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($question))
+$answer | ConvertTo-Json -Depth 12
+# 如需检查 Agent 界面闭环，将上面的 mode 改为 agent 后再提问。
+```
+
+**fake 演示不代表模型效果**：fake 向量不具备语义能力；回答显著标注 FAKE，只回显一个授权片段，不判断其能否回答问题；fake Agent 固定一次搜索后结束。用途是验证上传、任务、检索、引用和界面连通性，不能用于准确率或 Agent 决策能力结论。
+
+### 4. 持久化、重启和数据库恢复
+
+`pgdata` 保存数据库，`uploads` 由 backend/worker 共享并保存原文件；卷按 Compose 项目名隔离。运行一个 worker，**不要使用 `--scale worker=N`**。文件由后端非 root 用户写入，不挂载到前端静态目录。
+
+```powershell
+# 保留卷，重建容器；不加 -v。
+docker compose down
+docker compose up -d --wait
+# 用原账号登录：原知识库、文档和来源应仍在。
+docker compose logs --tail 60 worker
+
+# 本地故障演练：停库期间请求可能失败；恢复后连接应重新取得。
+docker compose stop db
+docker compose up -d --wait db
+docker compose up -d --wait
+Invoke-RestMethod http://127.0.0.1:8080/api/health/ready
+```
+
+SQLAlchemy `pool_pre_ping` 检查从连接池取出的连接；不重放失败中的写事务。worker 数据库故障退出后由 `restart: unless-stopped` 重启，持久任务按已有租约、run_token 与最多 3 次尝试恢复；外部模型调用可能重复，不承诺端到端 exactly-once。手动 `stop worker` 后须显式 `start worker` 或 `up -d`。
+
+`down` 保留资料；`down -v` 会删除该项目的卷，仅用于确认可丢弃的验收环境。不要对已有资料执行。保留原 `.env`：修改数据库密码不会自动更新已有数据库角色；更换 JWT 密钥会使原令牌失效。
+
+### 5. 切换真实模型（另建项目与卷）
+
+将 `.env` 复制为 `.env.real`（同样被 Git 忽略），修改：
+
+```dotenv
+COMPOSE_PROJECT_NAME=ragdesk-real
+RAGDESK_MODE=real
+FRONTEND_PORT=8081
+OPENAI_API_KEY=<在本地填写自己的密钥，不提交>
+CHAT_MODEL=gpt-4.1-mini-2025-04-14
+EMBEDDING_MODEL=text-embedding-3-small
+```
+
+为 real 配置独立随机数据库密码/JWT 密钥；所有命令改为 `docker compose --env-file .env.real ...`，重复构建、显式迁移、初始化账号、启动，并使用 8081。重新上传到新的真实索引；不要直接改已有 fake 项目模式或复用其卷。向量维度固定 1536，与现有迁移兼容，变更模型/维度须走契约和迁移，不能直接混用。real 缺密钥明确失败，模型故障不会降级成 fake。真实调用按提供商计费，本步未执行真实模型验证；详见[模型配置](docs/model_config.md)。
+
+### 验收与排错
+
+宿主 Python 测试环境准备好后，可运行离线入口检查：
+
+```powershell
 Set-Location backend
 uv sync --locked
-uv run --locked alembic upgrade head
-uv run --locked python -m app.init_demo_users --login-name alice --display-name Alice
-uv run --locked uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000 --no-access-log
+uv run --locked pytest -q tests/test_container_runtime.py
+uv run --locked ruff check app/container_runtime.py tests/test_container_runtime.py
+Set-Location ..
 ```
 
-初始化脚本会交互式要求输入并确认至少 12 字符的演示密码；不会创建默认账号，也不会在应用启动时自动运行。另开一个 PowerShell 窗口检查健康接口和登录：
+独立 Compose 验收（需要宿主 Python/uv；会构建镜像并创建随机测试项目，结束只删除它自己的测试卷，不读取你的 `.env` 或使用真实模型密钥）：
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health/live
-$credential = Get-Credential -UserName alice -Message "Demo login"
-$body = @{ login_name = $credential.UserName; password = $credential.GetNetworkCredential().Password } | ConvertTo-Json
-$session = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/auth/session -ContentType application/json -Body $body
-Invoke-RestMethod -Uri http://127.0.0.1:8000/auth/me -Headers @{ Authorization = "Bearer $($session.access_token)" }
+# 仓库根目录；使用前面 uv sync --locked 创建的测试环境。
+.\backend\.venv\Scripts\python.exe backend/tests/compose_acceptance.py
 ```
 
-健康接口应返回 `status: ok` 和非空 `request_id`，它只检查 Web 进程。登录成功返回有过期时间的 Bearer JWT；`/auth/me` 返回令牌对应的用户身份。启动需要 `DATABASE_URL` 与 `JWT_SECRET`；`JWT_SECRET` 至少 32 字节，只从环境变量读取。仅显式创建真实模型客户端时才需要 `OPENAI_API_KEY`。聊天与嵌入模型分别配置，详见[模型配置](docs/model_config.md)。配置类不自动加载 `.env`；[backend/.env.example](backend/.env.example) 不包含真实密钥。若数据库密码含 URL 特殊字符，构造 `DATABASE_URL` 时需先做 URL 编码。演示配置和密码不作为生产默认配置；重新生成签名密钥会使旧令牌失效。
+报告位于 `artifacts/validation/step28/ragdesk-acceptance-<随机值>/report.json`，原始命令输出与 fake 回答在同目录；全部被 Git 忽略。WSL 可用 `backend/.venv/bin/python backend/tests/compose_acceptance.py --docker /mnt/d/soft/Docker/resources/bin/docker.exe`（按本机 Docker CLI 路径调整）。本步实际验证 WSL + Docker Desktop 的 Linux/amd64 容器，10 个端到端检查通过；Windows 原生 PowerShell、ARM64 与真实模型调用未验证。这里的 fake 检查不是模型效果测试。
+
+镜像下载与依赖安装需要网络。Docker Hub 的认证/连接错误应检查 Docker Desktop 与当前终端的代理配置；不要通过删卷或更改应用密码解决网络下载失败。日志可用 `docker compose logs --tail 80 backend worker` 查看；避免分享 `.env` 或展开后的 `docker compose config`（含密钥），用 `config --quiet` 检查即可。实际验收及未验证项见 [进度记录](docs/progress.md)。
+
+官方依据：[Compose 启动依赖](https://docs.docker.com/compose/how-tos/startup-order/)、[Docker 卷](https://docs.docker.com/engine/storage/volumes/)、[uv 容器集成](https://docs.astral.sh/uv/guides/integration/docker/)、[SQLAlchemy 断线处理](https://docs.sqlalchemy.org/en/20/core/pooling.html#disconnect-handling-pessimistic)。
+
+> 以下各步保留的 `http://127.0.0.1:8000` 示例是宿主机开发入口。使用本 Compose 时将其替换为 `http://127.0.0.1:8080/api`；数据库默认不发布 5432，宿主机 Python 开发需自行提供独立本地开发库及环境变量，不与 Compose 的容器地址 `db` 混用。
 
 ## 知识库与成员权限
 
-已登录用户可创建知识库，并自动成为该库管理员。`GET /knowledge-bases` 只返回当前用户加入的库；`GET /knowledge-bases/{kb_id}` 要求成员资格。管理员可通过 `GET /knowledge-bases/{kb_id}/members` 查看成员，使用 `PUT /knowledge-bases/{kb_id}/members/{user_id}` 配合 `{"role":"member"}` 或 `{"role":"admin"}` 添加或调整已有用户，使用 `DELETE` 同路径移除成员。移除或降级最后一位管理员会返回 `409`。普通成员可读取知识库及其文档，上传仅限管理员；文档删除尚无接口；问答及来源查看见下文。
+已登录用户可创建知识库，并自动成为该库管理员。`GET /knowledge-bases` 只返回当前用户加入的库；`GET /knowledge-bases/{kb_id}` 要求成员资格。管理员可通过 `GET /knowledge-bases/{kb_id}/members` 查看成员，使用 `PUT /knowledge-bases/{kb_id}/members/{user_id}` 配合 `{"role":"member"}` 或 `{"role":"admin"}` 添加或调整已有用户，使用 `DELETE` 同路径移除成员。移除或降级最后一位管理员会返回 `409`。普通成员可读取知识库及其文档，上传仅限管理员；文档删除、问答及来源查看见下文。
 
 在上面的登录示例取得 `$session` 后，可创建并查看知识库：
 

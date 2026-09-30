@@ -1,20 +1,97 @@
+# Local-only delivery. Run the explicit migration step before starting the app.
+x-app: &app
+  image: ${COMPOSE_PROJECT_NAME:-ragdesk-local}-backend:0.1.0
+  build:
+    context: .
+    dockerfile: docker/backend.Dockerfile
+  init: true
+  restart: unless-stopped
+  environment: &app-env
+    RAGDESK_MODE: ${RAGDESK_MODE:?Set RAGDESK_MODE to fake or real}
+    DB_HOST: db
+    POSTGRES_USER: ragdesk
+    POSTGRES_DB: ragdesk
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local database password}
+    JWT_SECRET: ${JWT_SECRET:?Set a random JWT_SECRET of at least 32 bytes}
+    UPLOAD_STORAGE_DIR: /var/lib/ragdesk/uploads
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    CHAT_MODEL: ${CHAT_MODEL:-gpt-4.1-mini-2025-04-14}
+    EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+    EMBEDDING_DIMENSIONS: "1536"
+    MODEL_CONNECT_TIMEOUT_SECONDS: "5"
+    MODEL_READ_TIMEOUT_SECONDS: "30"
+    MODEL_MAX_ATTEMPTS: "3"
+  volumes:
+    - uploads:/var/lib/ragdesk/uploads
+  depends_on:
+    db:
+      condition: service_healthy
+
 services:
   db:
     image: pgvector/pgvector:0.8.6-pg17-trixie@sha256:724a4041afdb1750446e3f6b5cfa8f3b0ac5a2cf538ddfa6bfee4f94c2fa85c6
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ragdesk
       POSTGRES_DB: ragdesk
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the environment}
-    ports:
-      - "127.0.0.1:5432:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local database password}
     volumes:
-      - ragdesk_pgdata:/var/lib/postgresql/data
-      - ./backend/db-init/01-vector.sql:/docker-entrypoint-initdb.d/01-vector.sql:ro
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 12
+      start_period: 10s
+
+  migrate:
+    <<: *app
+    profiles: ["init"]
+    command: ["migrate"]
+    restart: "no"
+
+  backend:
+    <<: *app
+    command: ["api"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  worker:
+    <<: *app
+    # Exactly one worker for this local delivery; do not use --scale worker=N.
+    command: ["worker"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.container_runtime", "check"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    image: ${COMPOSE_PROJECT_NAME:-ragdesk-local}-frontend:0.1.0
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
-  ragdesk_pgdata:
+  pgdata:
+  uploads:

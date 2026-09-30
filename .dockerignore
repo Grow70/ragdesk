@@ -1,0 +1,25 @@
+# Build context allowlist. Never send local secrets/data to the builder.
+**
+!backend/
+!backend/app/
+!backend/app/**
+!backend/alembic/
+!backend/alembic/**
+!backend/alembic.ini
+!backend/pyproject.toml
+!backend/uv.lock
+!frontend/
+!frontend/src/
+!frontend/src/**
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/index.html
+!frontend/tsconfig.json
+!frontend/vite.config.ts
+!docker/
+!docker/*.Dockerfile
+!docker/nginx.conf
+**/__pycache__/**
+**/*.pyc
+**/.env*
+**/uploads/**
