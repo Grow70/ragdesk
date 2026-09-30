@@ -10,11 +10,13 @@ const real = process.env.E2E_REAL === "1";
 export default defineConfig({
   testDir: "./tests",
   testMatch: real
-    ? process.env.E2E_QUESTION === "1"
-      ? "question-real.spec.ts"
-      : process.env.E2E_DOCUMENTS === "1"
-        ? "documents-real.spec.ts"
-        : "real.spec.ts"
+    ? process.env.E2E_KEYFLOW === "1"
+      ? "keyflow-real.spec.ts"
+      : process.env.E2E_QUESTION === "1"
+        ? "question-real.spec.ts"
+        : process.env.E2E_DOCUMENTS === "1"
+          ? "documents-real.spec.ts"
+          : "real.spec.ts"
     : ["auth.spec.ts", "documents.spec.ts", "question.spec.ts"],
   fullyParallel: false,
   workers: 1,

@@ -130,7 +130,11 @@ test("fixed answer renders Markdown and authorized source; each question is inde
   await expect(panel.locator("pre")).toHaveText(source.snippet);
   await ask(page, "另一个独立问题");
   await expect(panel).toHaveCount(0);
-  await expect(page.getByText("另一个独立问题", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole("article", { name: "问答结果" })
+      .getByText("另一个独立问题", { exact: true }),
+  ).toBeVisible();
   expect(requests).toEqual([
     { question: "报销要求是什么？", mode: "rag" },
     { question: "另一个独立问题", mode: "rag" },

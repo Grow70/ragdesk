@@ -4,6 +4,10 @@
 
 需求和后续实现契约分别见 [docs/requirements.md](docs/requirements.md) 与 [docs/architecture.md](docs/architecture.md)。
 
+## CI 与关键回归
+
+[第 29 步 CI 说明](docs/ci.md)包含工作流、本地复现命令和逐项覆盖映射。GitHub Actions 运行真实 PostgreSQL+pgvector 集成、前端构建及 fake 模型浏览器闭环；缺数据库或意外跳过会失败。自动 CI 不注入收费 API 密钥，真实模型烟测独立手动运行。实际已执行/未执行状态见[进度记录](docs/progress.md)。
+
 ## 本地 Docker Compose：从空环境到首次问答（PowerShell）
 
 前提：安装并启动 Docker Desktop（Linux containers，Compose v2+），下载本仓库。无需在宿主机安装 Python/Node。以下从仓库根目录执行。默认仅 `http://127.0.0.1:8080` 可访问；数据库和后端不发布宿主机端口，不用于公网部署。

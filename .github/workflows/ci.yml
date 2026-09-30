@@ -1,0 +1,114 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+# These are isolated test credentials, never application/production defaults.
+env:
+  TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:ci-disposable-only@127.0.0.1:5432/postgres
+  OPENAI_API_KEY: ''
+  COHERE_API_KEY: ''
+  RUN_REAL_RETRIEVAL: '0'
+  RUN_REAL_RERANK: '0'
+  NO_PROXY: localhost,127.0.0.1
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg17-trixie@sha256:724a4041afdb1750446e3f6b5cfa8f3b0ac5a2cf538ddfa6bfee4f94c2fa85c6
+        env:
+          POSTGRES_PASSWORD: ci-disposable-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.12.15'
+          python-version: '3.12.13'
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Static checks
+        run: |
+          uv run --locked ruff check .
+          uv run --locked ruff format --check .
+      - name: Unit and real pgvector integration tests (no unexpected skips)
+        run: uv run --locked pytest --ci-suite backend -q --junitxml=../artifacts/ci/backend.xml
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: backend-junit
+          path: artifacts/ci/backend.xml
+          retention-days: 7
+          if-no-files-found: warn
+
+  frontend-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg17-trixie@sha256:724a4041afdb1750446e3f6b5cfa8f3b0ac5a2cf538ddfa6bfee4f94c2fa85c6
+        env:
+          POSTGRES_PASSWORD: ci-disposable-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.12.15'
+          python-version: '3.12.13'
+          enable-cache: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.21.0'
+          package-manager-cache: false
+      - run: uv sync --locked
+        working-directory: backend
+      - run: npm ci
+        working-directory: frontend
+      - name: Frontend checks and production build
+        working-directory: frontend
+        run: |
+          npm run typecheck
+          npm run format:check
+          npm run build
+      - run: npx --no-install playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Browser contract regressions (controlled HTTP)
+        run: npm test
+        working-directory: frontend
+      - name: Real browser + API + worker + PostgreSQL, fake models
+        working-directory: backend
+        env:
+          RUN_FRONTEND_E2E: '1'
+        run: uv run --locked pytest --ci-suite e2e -q --junitxml=../artifacts/ci/e2e.xml
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: e2e-results
+          path: |
+            artifacts/ci/e2e.xml
+            artifacts/validation/step29/*.txt
+          retention-days: 7
+          if-no-files-found: warn

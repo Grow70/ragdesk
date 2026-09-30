@@ -470,3 +470,11 @@ flowchart TD
 - 容器入口明确接受 RAGDESK_MODE=fake|real。fake 显式使用既有 fake Embedding、标注 FAKE 的确定性片段回显 Chat 和一次搜索后结束的 fake 决策，并清除模型密钥；不是语义问答/自主 Agent 效果。real 使用现有真实模型适配器，启动 API/worker 时要求密钥，失败不会降级 fake。宿主机原有 app.main 工厂行为不变。
 - 密钥由 Compose 从本地未提交的 .env/进程环境注入；根目录 .env.example 只有空密码/密钥项。数据库 URL 在容器内用 URL.create 编码密码，不把秘密写进镜像。演示账号仅显式交互创建，无默认账号密码；首次库通过既有认证 API 创建。
 - 先验收：缺配置/非法模式/real 缺密钥明确失败且不泄密；fake 不调用网络模型；迁移前 readiness 失败/显式迁移后成功与并发锁；空项目构建启动、登录上传→worker→固定/Agent fake 问答；重建容器后原文件/数据/任务仍在；停库导致未就绪、恢复后 API/worker 继续；仅回环网页端口可见。无法执行的平台/真实模型步骤单独标未验证。
+
+## 第 29 步契约：CI 与关键回归
+
+- GitHub Actions 在 push/pull_request 与手动触发时执行后端静态检查、单元和真实 PostgreSQL+pgvector 集成回归，以及前端类型/构建、浏览器契约回归和 fake 模型真实端到端闭环。使用固定 Action 提交、Python/Node/uv 版本及 pgvector 镜像摘要，按现有锁文件安装；不使用 SQLite。
+- CI 测试入口必须显式选择 backend/e2e，预检测试库可连接且可用 vector 扩展；缺配置/数据库故障/意外 skip 均失败。真实收费测试从普通 CI 明确排除，模型密钥不注入，HTTPX 默认网络传输仅允许本地服务，MockTransport 协议测试保持可用。真实模型检查保留独立手动命令，不能因 fake 通过宣称真实效果。
+- 新增同一浏览器流程：真实登录、管理员上传、独立 fake worker 发布、固定/Agent 问答、引用读取；同组检查普通成员上传/删除/重建被拒绝、外库检索/来源/下载/任务访问和伪造库路径被拒绝、删除后检索为空/引用失效/问答拒答。身份、数据库、文件和服务均真实，只有模型为确定性 fake，不拦截业务 HTTP 响应。
+- Agent 三工具/六模型请求/截止时间停止与 worker 旧 run_token 无法覆盖新结果，复用现有可控时钟/Event 数据库回归并列入必跑映射；不通过长 sleep 或随机模型等待竞争条件。浏览器轮询有截止、无自动重试，进程和随机测试库在 finally 清理。
+- CI 权限 contents:read，不部署、不 push、不使用 pull_request_target 或生产环境密钥；保存有限期 JUnit 与模拟测试输出，不上传 .env、数据库、原始上传目录或浏览器含凭据 trace。远端 Actions 未触发时与本地同命令验证分开记录。

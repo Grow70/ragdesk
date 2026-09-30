@@ -312,3 +312,20 @@
 - 产物与清理：artifacts/validation/step28/build.txt 保留原失败，build-retry.txt 为成功构建；acceptance.txt 和随机项目目录下 commands.txt/report.json/fake-answers.json 保存实际结果，不含登录令牌。验收脚本清理了自身随机项目的容器/卷，随后 docker ps/volume ls 复核为空；未操作用户数据、关闭 Docker Desktop、commit、push、部署或购买服务。
 - 未验证：Windows 原生 PowerShell 全流程、ARM64、真实模型网络和效果；本步通过 HTTP 验证构建后的前端资源及同源代理，未重跑第 27 步浏览器交互套件。验收使用全新数据库/上传卷和锁定镜像，镜像层允许复用构建缓存，不宣称在全新操作系统上安装验证。测试脚本仅验证排队任务跨重建及数据库断连恢复，执行中崩溃 fencing 的故障注入结果仍引用第 20B 步，不冒充本次重跑。
 - 下一步入口：本步本地 fake 交付验收完成；按 README 使用自己的 .env 初始化本地项目。若另行授权真实模型验证，使用独立 real 项目/卷并单独记录；等待新的编号任务，不自动部署公网或继续扩展。
+
+
+## 第 29 步：CI 与关键端到端回归（2026-09-30）
+
+- 已完成：新增 .github/workflows/ci.yml、测试 CI 入口 conftest.py、同一文档的浏览器闭环夹具与 keyflow-real.spec.ts、可控 JWT 时钟回归；调整 Playwright 的测试选择和既有问答测试定位器。更新 README、architecture 与 docs/ci.md。没有新增业务功能、工具、模型提供商、依赖或数据库表，两个锁文件保持不变。
+- 工作流：push/pull_request/workflow_dispatch，Ubuntu 24.04 两个独立 job，contents:read、固定官方 Action 完整提交、Python 3.12.13/Node 24.21.0/uv 0.12.15；pgvector 0.8.6/PG17 镜像摘要沿用 Compose。后端执行静态/单元/真实数据库集成，前端执行类型/格式/构建、浏览器契约及真实 API/worker/数据库 E2E。没有部署、push、生产 Secrets 或 pull_request_target；JUnit 与指定模拟日志保留 7 天。
+- CI 失败保护：--ci-suite backend/e2e 明确划分，两个收费烟测明确排除；缺测试库、不支持 vector、SQLite、非空模型密钥或收费开关均拒绝，意外 skipped 返回失败。已实际验证缺库/SQLite/模型密钥退出 4、未开启浏览器条件的 E2E skip 退出 1。HTTPX 默认网络传输限制 loopback，MockTransport 不受影响；浏览器/API/worker 子进程显式 fake 并移除模型密钥。真实模型检查保留文档中的独立手动命令，未执行收费调用。
+- 覆盖：浏览器真实登录→上传 202→独立 worker 入库→固定/Agent 提问→引用查看，引用 document_id 必须对应刚上传的文件；普通成员真实 token 上传/删除/重建/任务查询 403；B 管理员访问 A 检索、引用、原文件、任务被拒，伪造到自身 B 路径仍 404；B 搜索为空且不足；删除后 A 检索为空、旧引用和下载 404，固定/Agent 均拒答。backend 必跑既有向量/BM25 删除隔离、Agent 工具/模型/截止预算、旧 worker 迟到成功/失败 fencing 等回归。docs/ci.md 列出逐项测试映射，不使用 SQLite。
+- 首轮实际结果：后端 **362 passed、1 failed、6 deselected（148.45 秒）**，失败为重建前来源请求偶发 401；真实浏览器套件 **4 passed、365 deselected（42.32 秒）**，包含旧认证/文档/问答与新增闭环 4 个 Python 夹具，内层 Playwright 项目不重复计数。新增闭环浏览器用例实际 **1 passed（6.5 秒，含启动）**。浏览器 HTTP 契约首轮 **35 passed、1 failed（33.1 秒）**，保留原日志。
+- 认证失败定位与修复：对单一失败用例最多 12 次带诊断复现，第 10 次捕获 ImmatureSignatureError；同一令牌之前被接受，后来 iat 比验证时间超前约 1.687 秒，确认运行中宿主墙上时钟回退。为进程内测试统一签发/PyJWT 校验时钟，真实浏览器子进程不冻结；新增未来 iat/到期 exp 拒绝测试，未放宽生产认证。第一版测试时钟替换影响 PyJWT datetime isinstance 编码，定向检查发现后保留原 datetime 类型识别，修正后 **14 passed（11.55 秒）**。诊断产物中的 pytest 断言 Bearer 文本已脱敏，未提交令牌。
+- 浏览器失败定位与修复：getByText 同时匹配输入框和回答中的已提交问题，strict mode violation；限定到“问答结果”区域后，完整浏览器契约 **36 passed（33.0 秒）**。不改页面行为、不添加重试、不依赖长 sleep。完整后端最终 **364 passed、6 deselected（136.90 秒）**，无跳过；6 项为另行运行的 4 个浏览器夹具及 2 个收费烟测。最后的空密钥标准化定向结果另记下条，不把之前全量运行冒充后续修改后的重跑。
+- 工程验证：npm ci、TypeScript、Prettier、Vite 生产构建通过；Ruff check/format --check（116 文件）、uv lock --check（77 包）、git diff --check 通过；actionlint 1.7.12 官方发布 SHA-256 核验后运行工作流检查通过（未启用 ShellCheck）。Actions commit 从官方标签解析，GitHub 服务容器、uv 和 Playwright 官方文档链接已记录。GitHub API 匿名额度 403 时改用固定官方 release URL 下载检查工具，没有改全局网络。
+- 执行环境及限制：实际本地 WSL Python 3.12.3、Node 24.21.0、Docker Desktop Linux/amd64、真实 Chromium 和 pgvector；远端 GitHub Actions 尚未触发，不能宣称远端绿灯。CI 指定的 Python 3.12.13 全套回归及 Windows 原生/ARM64 未在本步运行；第 28 步已有 Python 3.12.13 容器构建/交付验收，不能替代本步完整 CI。fake 测试只证明工程行为，不证明真实 RAG 效果。
+- 自动审批记录：启动专用数据库的首次审批超时，命令未执行，按允许重试一次后成功。最后一次空密钥标准化修改被自动审批拒绝，理由是可能先删除非空密钥而削弱 CI 保护；该命令未执行。只读确认保护检查在前后，采用“先拒绝非空，之后仅删除严格等于空字符串的值”的安全替代，并额外验证非空密钥仍退出 4，没有绕过审核或放宽模型凭据保护。
+- 产物：artifacts/validation/step29/ 保存 backend.txt/backend-final.txt 与 XML、e2e.txt/XML、keyflow-api/worker/browser 日志、browser-contract 初始及 final 日志、auth-reproduction/auth-fix/final、ci-guards 与空密钥环境验证；全部在忽略目录。专用数据库容器为 ragdesk-step29-pg，测试只操作随机临时库；清理结果见下条。
+- 下一步入口：本步本地 CI 命令与关键回归已建立；由项目负责人提交/推送后查看两个 GitHub job 的实际结果。没有自动 commit/push、配置仓库分支保护、部署或进入下一编号任务；真实模型验证必须独立显式运行。
+- 最后定向验证与清理：空模型密钥在非空拒绝检查之后标准化，按 Actions 的相同环境运行模型配置/启动/重排配置/认证时钟检查 **41 passed（3.23 秒）**，额外非空密钥探测仍退出 4。最终 Ruff check/format、actionlint 和 git diff --check 通过。已停止 --rm 专用容器 ragdesk-step29-pg，随后 docker ps -a 过滤结果为空；未操作其他容器或已有数据库。远端 CI 仍为未运行。
